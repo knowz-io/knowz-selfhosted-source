@@ -131,7 +131,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --latest=false --title "Selfhosted ${GITHUB_REF_NAME#v}" --notes 'Staged complete API/web/MCP image set; see digest manifest. Stable promotion requires installed CLI acceptance.'
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --prerelease --latest=false
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --latest=false --title "Selfhosted ${GITHUB_REF_NAME#v}" --notes 'Staged complete API/web/MCP image set; see digest manifest. Stable promotion requires installed CLI acceptance.'
+          fi
           gh release upload "$GITHUB_REF_NAME" selfhosted-release.json
 
       - name: Clean smoke runtime
