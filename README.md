@@ -443,12 +443,14 @@ Runs on PRs to `main`:
 
 ### Release (`release.yml`)
 
-Triggered by version tags (`v*.*.*`) or manual dispatch:
+Official image publication runs from the controlled build repository on version tags (`v*.*.*`). The public source repository and forks do not publish official image tags.
 - Multi-architecture builds (`linux/amd64`, `linux/arm64`)
-- Pushes to GHCR with semver tags + `latest`:
+- Stages GHCR images under version tags; existing versions and `latest` are preserved:
   - `ghcr.io/knowz-io/knowz-selfhosted-api`
   - `ghcr.io/knowz-io/knowz-selfhosted-web`
   - `ghcr.io/knowz-io/knowz-selfhosted-mcp`
+
+A release descriptor is staged only after the complete multi-architecture set and its startup check pass. Stable promotion additionally requires the installed CLI acceptance journey.
 
 ## Testing
 
