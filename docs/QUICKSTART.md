@@ -1,117 +1,126 @@
 # Quickstart Guide
 
-Install Knowz Self-Hosted with the Knowz CLI. `knowz up` pulls published GHCR **release images** and starts the web UI. You do not clone a repository or build from source.
+This guide targets the **Knowz CLI 0.5.0 preview**. CLI versions and selfhosted image versions are separate. `knowz up` opens local browser setup, pulls published GHCR **release images**, and starts the web UI. A standard installation requires no source checkout or build.
 
 ## Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose plugin)
-- [Node.js 22+](https://nodejs.org/)
-- At least 1 GB of available RAM for the Postgres + API containers
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine with the Compose plugin, running on this computer
+- [Node.js 22+](https://nodejs.org/) for the npm install below
+- Space and memory for PostgreSQL, API, web and MCP containers; a locally hosted AI model needs its own resources
 
-## Step 1: Start with the CLI
+Node-free installers and checksums are available through [Knowz CLI releases](https://github.com/knowz-io/knowz-cli/releases). The 0.5.0 native preview is unsigned and not notarized; check the status of the exact artifact you download.
+
+## Step 1: Open setup
+
+Run the exact preview version:
 
 ```bash
-npx @knowzai/cli@latest up
+npx @knowzai/cli@0.5.0 up
 ```
 
-Here Forever (same CLI, branded chrome — not a fork):
+Or install it once:
 
 ```bash
-npx hereforever up
-```
-
-Or `knowz --hereforever up`. See [`docs/HEREFOREVER_CLI.md`](../../docs/HEREFOREVER_CLI.md).
-
-Or install once, then run:
-
-```bash
-npm i -g @knowzai/cli
+npm i -g @knowzai/cli@0.5.0
 knowz up
 ```
 
-This pulls the public GHCR **release images** `ghcr.io/knowz-io/knowz-selfhosted-api`, `ghcr.io/knowz-io/knowz-selfhosted-web`, and `ghcr.io/knowz-io/knowz-selfhosted-mcp`, writes runtime files under `~/.knowz/selfhosted/`, generates secrets, and starts the stack. Default edition is self-hosted. No GitHub authentication is required. No source checkout.
+The browser guides you through the AI provider, services, administrator account and Review. Selfhosted is the default edition and needs no license or GitHub login. Choose no AI provider to begin with local capture and keyword search; add a provider later when you need AI answers.
 
-The CLI is the guided install path. The [public Apache-2.0 source](https://github.com/knowz-io/knowz-selfhosted-source) is also available for customization; see [Compose from a checkout](#compose-from-a-checkout-operators-only).
+Setup pulls `ghcr.io/knowz-io/knowz-selfhosted-api`, `knowz-selfhosted-web`, and `knowz-selfhosted-mcp` at the selected complete release's digests. Its private runtime directory is `~/.knowz/selfhosted/knowz/` by default, or `~/.knowz/selfhosted/<name>/` with `--name`. `KNOWZ_CONFIG_DIR` can relocate that root.
 
-## Step 2: Wait for Startup
-
-The CLI waits until the stack is healthy, then prints the bound URLs and the first administrator credentials (also shown on the loopback setup page).
-
-On first run the API will:
-
-1. Wait for Postgres to become healthy (`pg_isready`)
-2. Run database migrations automatically
-3. Create the SuperAdmin account from the credentials the CLI generated (or that you set)
-
-Default ports if you did not remap them:
-
-| Service | Description | Port |
-|---------|-------------|------|
-| **db** | PostgreSQL 16 + pgvector (`pgvector/pgvector:pg16`) | 5432 |
-| **api** | Knowz API (.NET 10) | 5000 |
-| **web** | Web UI (React + nginx) | 3000 |
-| **mcp** | MCP Server | 3001 |
-
-`knowz up` (0.16.0) still publishes Postgres on loopback `127.0.0.1:5432`. Source compose in this tree does **not** publish a database host port.
-
-## Step 3: Log In
-
-Open the web UI the CLI printed (default [http://localhost:3000](http://localhost:3000)) and log in with the administrator username and password from the setup summary.
-
-## First Steps After Login
-
-1. **Create a vault** -- Vaults are containers for organizing your knowledge
-2. **Add knowledge** -- Create knowledge items manually or upload files
-3. **Try search** -- Search across your knowledge base (full-text search works without AI; semantic search requires an embedding model)
-4. **Generate an API key** -- Go to Settings to create a per-user API key for programmatic access
-
-## Enabling AI Features
-
-Knowz works without AI services for basic knowledge management. To enable AI-powered search, chat, and automatic enrichment, choose one of two approaches during `knowz up` or by editing the runtime `.env` under `~/.knowz/selfhosted/`:
-
-### Option 1: Connect to Knowz Cloud (simplest)
-
-No Azure subscription needed -- just an API key from your Knowz Cloud account:
+For a separate installation or occupied ports:
 
 ```bash
-KNOWZ_PLATFORM_ENABLED=true
-KNOWZ_PLATFORM_URL=https://api.knowz.io
-KNOWZ_PLATFORM_APIKEY=ukz_your_api_key
+knowz up --name notes --api-port 15000 --web-port 13000 --mcp-port 13001
 ```
 
-AI operations (chat, summarization, embeddings, enrichment) are answered by Knowz Cloud. Search stays local and uses keyword matching. Nothing leaves this instance until you set these values.
+Use the same `--name notes` on subsequent setup, status, stop, backup and upgrade commands. The [public Apache-2.0 source](https://github.com/knowz-io/knowz-selfhosted-source) is also available for customization; see [Compose from a checkout](#compose-from-a-checkout-operators-only).
 
-### Option 2: Your own Azure OpenAI resources
+## Step 2: Start the services
 
-Uses your own Azure resources for the best search quality (hybrid vector + keyword):
+Review the settings and start. Progress remains available while images download and services start. You can cancel or retry from the setup page. On a fresh installation, the API applies database migrations and creates the first administrator (`admin`).
 
-1. Set up an [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) resource
-2. Set up an [Azure AI Search](https://azure.microsoft.com/en-us/products/ai-services/ai-search) resource
-3. Add the credentials (see [Configuration Reference](CONFIGURATION.md))
+Use the service URLs shown by setup. The defaults are:
 
-### After configuring either option:
+| Service | Default URL or internal address |
+|---------|---------------------------------|
+| Web UI | [http://localhost:3000](http://localhost:3000) |
+| API | [http://localhost:5000](http://localhost:5000) |
+| MCP | [http://localhost:3001/mcp](http://localhost:3001/mcp) |
+| PostgreSQL + pgvector | `db:5432` internally; **not published on the host** |
+
+Both CLI-managed and source Compose installations keep PostgreSQL on the container network. An existing host PostgreSQL server does not conflict with this default. Remapped service ports are reflected in setup's URLs.
+
+## Step 3: Finish sign-in
+
+If you left the password blank, setup shows the generated temporary password once: choose **Show password** or **Copy password**. Sign in to the Web URL as `admin` with that temporary password and change it to a permanent password before continuing. If you supplied a password during setup, use that password and follow any required password-change step.
+
+Return to the setup page's **Connect CLI** form and use the current password. You can also complete a required password change there by entering both the current and new passwords. **Finish signing in** means services started but CLI authentication still needs attention; it is not a reason to reinstall. A wrong password leaves the same runtime available for retry.
+
+Generated credentials are not included in routine logs or replayed after refresh. If you missed the one-time display, the private runtime `.env` holds the original bootstrap `ADMIN_USERNAME` and `ADMIN_PASSWORD`. After a password change, that bootstrap password is no longer the account's current password; editing `.env` does not reset the account.
+
+For an existing account, terminal sign-in prompts for the password without displaying it:
 
 ```bash
+knowz login --self-hosted --username admin --api-url http://localhost:5000 --profile local
+```
+
+Use the exact API URL displayed by setup. The default runtime uses profile `local`; a named runtime uses `local-<name>` (for example `local-notes`). Credentials are bound to that endpoint and profile. Successful sign-in verifies and stores the per-user API key; it does not silently replace an existing key that you already use elsewhere.
+
+## First steps
+
+1. **Create a vault** to organize related knowledge.
+2. **Create a note**, then attach a supported text file.
+3. **Search for a distinctive phrase** from your note or attachment. Keyword search works without AI; semantic search requires an embedding provider.
+4. **Use CLI or MCP** with the same instance's per-user API key. Settings → API Keys manages programmatic access.
+
+Without a provider, Ask and Chat explain that AI is unavailable instead of inventing an answer. Capture, files and keyword search remain usable.
+
+## Add or change an AI provider
+
+Reopen setup for the existing installation:
+
+```bash
+knowz setup
+# Named installation:
+knowz setup --name notes
+```
+
+Choose **Apply my changes (reconfigure)** when updating an existing installation. Select an OpenAI-compatible endpoint (including a local model server), Azure OpenAI, or an optional connection to Knowz Cloud. Configure the chat and embedding models together; embedding dimensions must match the selected model. Azure AI Search is optional: local PostgreSQL + pgvector supplies search without that service. See the [Configuration Reference](CONFIGURATION.md) for provider details.
+
+Administrator **Configuration** shows supported provider settings, their authority and whether a restart is required. Managed secrets stay read-only there; update them through host setup or the managed secret store indicated by the UI. **Saved** does not mean **active** until any required API restart has completed. A configuration-only check is not proof of authenticated provider connectivity. After a browser configuration save requires restart, run `knowz down` then `knowz up` for the same instance to load it. Browser **Settings → Connection** changes which Knowz server this browser uses; it does not configure an AI provider.
+
+## Stopping, restarting and recovering
+
+```bash
+# Inspect actual service health and the recorded version
+knowz runtime status --edition selfhosted
+
+# Stop services; preserve database, files and protection keys
+knowz down --edition selfhosted
+
+# Start or reconnect to this installation
 knowz up
+
+# Diagnose a failed start
+knowz runtime doctor --edition selfhosted
+knowz runtime logs --edition selfhosted --tail 100
 ```
 
-## Stopping and Restarting
-
-```bash
-# Stop all services (data is preserved in Docker volumes)
-knowz down
-
-# Start again
-knowz up
-```
+Add the same `--name` for a named installation. `knowz setup --name notes` can inspect the existing runtime, start it if stopped, and retry sign-in with the current password. A browser pointed at an unreachable saved server can reset its connection to this instance from the login page; that resets browser connection state, not server data.
 
 ## Upgrading
 
+Take an encrypted backup, then select a compatible **selfhosted image version**, independently of the CLI version:
+
 ```bash
-knowz up
+knowz backup --edition selfhosted --encrypt --out knowz-before-upgrade.tar.gz.enc
+knowz runtime upgrade --edition selfhosted --version 0.16.2
+knowz runtime status --edition selfhosted
 ```
 
-The CLI pulls the current complete public **release images**. The API automatically applies any new database migrations on startup.
+The terminal asks for a hidden backup passphrase; retain it separately from the archive. Add the same `--name` throughout when applicable. Upgrade preserves database, file and protection-key volumes, and applies required database migrations on startup. Use a pre-upgrade backup for recovery into a separate stopped target; do not point an older image at a newer database and assume schema compatibility.
 
 ## Compose from a checkout (operators only)
 
@@ -156,13 +165,13 @@ Source compose does not publish a database host port (internal `db:5432` only). 
 docker compose ps
 ```
 
-Log in at [http://localhost:3000](http://localhost:3000) with `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Stop with `docker compose down` (volumes preserved). Upgrade with `docker compose pull && docker compose up -d`.
+Log in at [http://localhost:3000](http://localhost:3000) with `ADMIN_USERNAME` / `ADMIN_PASSWORD` and complete any required password change. Stop with `docker compose down` (volumes preserved). For this source-build path, review the new source revision and rebuild with `docker compose up --build -d`.
 
 ## Troubleshooting
 
 ### CLI install
 
-If `npx @knowzai/cli up` / `knowz up` fails, confirm Docker is running and Node is 22+. Remap occupied ports with `--api-port`, `--web-port`, `--mcp-port`, and `--name`. The CLI prints the bound URLs.
+If `npx @knowzai/cli@0.5.0 up` or `knowz up` fails, confirm Docker is running and Node is 22+ for the npm install. Use `knowz runtime doctor --edition selfhosted` and the reported setup error. Remap occupied ports with `--api-port`, `--web-port`, and `--mcp-port`; use `--name` to identify a separate installation. The CLI reports the bound service URLs.
 
 ### Port Conflicts
 
@@ -173,7 +182,7 @@ ports:
   - "3001:8080"  # Change the left side (host port) to an available port
 ```
 
-The database does not occupy a host port. A 0.16.0 compose that still maps `127.0.0.1:${DB_PORT:-5432}:5432` is the previous default — safe on loopback, but no longer shipped.
+The database does not occupy a host port in this release. Existing older installations can retain a historical loopback database mapping until their runtime configuration is updated.
 
 ### Postgres Memory
 
@@ -189,7 +198,7 @@ docker compose logs api
 
 Common issues:
 - **Database connection failed** -- The Postgres container may still be starting. The API retries automatically with exponential backoff (up to 10 attempts).
-- **Migration error** -- If the database was manually modified, you may need to reset it: `docker compose down -v` (warning: this deletes all data).
+- **Migration error** -- Preserve the database and inspect the migration failure. Recover from a verified backup into a separate target when needed; removing volumes deletes the data.
 
 ### ARM64 (Apple Silicon) Notes
 

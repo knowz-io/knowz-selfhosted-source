@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "treeSha256": "b8ca172195c15a475713951e99536bb159f411746b7d814e6beae2cd3f3211e9",
+  "treeSha256": "c8944cb14fb3ea4d6aebeea67132bf22e76e1cdd673bda9bc2943b0c7ca17e4b",
   "files": [
     {
       "path": ".dockerignore",
@@ -52,8 +52,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 25254,
-      "sha256": "3c7bbc77d5560fb5e27d5cfa8661a9153344830b439f7441d91386866931e999",
+      "bytes": 26816,
+      "sha256": "34b261ffe98c886dfbcfb1cfe124dfb0238e7f61b7ebb049df7e385984fd4143",
       "mode": 420
     },
     {
@@ -88,8 +88,8 @@
     },
     {
       "path": "docs/QUICKSTART.md",
-      "bytes": 8023,
-      "sha256": "c58071ed50ac1fca8b257d0b8f0f5e22fc368fa48201edf2187148c577dca22a",
+      "bytes": 11945,
+      "sha256": "22422045206edfa9313526f6d7d74a08993bf541ed0fe25ee0d9b7955e439e99",
       "mode": 420
     },
     {
@@ -4288,8 +4288,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/tests/configuration-navigation.spec.ts",
-      "bytes": 5410,
-      "sha256": "0463a4c1ee7dfdb6cf36be4d19306d266afab5add2275d095d72f99d9edfdec3",
+      "bytes": 5754,
+      "sha256": "fdcdf143db6051587f548969c845a243f277420a228246555db46451402fc8c6",
       "mode": 420
     },
     {
@@ -4575,7 +4575,7 @@
       "mode": 420
     }
   ],
-  "sourceRevision": "40272c6a886cc02da3f84297318f224dfa9c5fc8",
+  "sourceRevision": "af53f2c6f239445f056aeb38a3ecd84be3d031ff",
   "workingTreeDirty": false,
   "license": "Apache-2.0",
   "policySha256": "785ebc7a04a6684ec4b4b20e83b49688997733fc0a24042732864ecea85b6a1f"

@@ -3,13 +3,16 @@ import { test, expect, type Page } from '@playwright/test'
 
 // Opt-in: an isolated real instance with an already rotated administrator password.
 // Credentials are read from a private file and never written to test artifacts.
+const category = process.env.KNOWZ_E2E_CONFIG_CATEGORY || 'OpenAiCompatible'
+const categoryLabel = process.env.KNOWZ_E2E_CONFIG_LABEL || 'OpenAI-compatible'
+const fieldName = process.env.KNOWZ_E2E_CONFIG_FIELD || 'ChatModel'
 const credentialFile = process.env.KNOWZ_E2E_CREDENTIAL_FILE
 const credentials = credentialFile ? JSON.parse(readFileSync(credentialFile, 'utf8')) as { username: string; password: string } : null
 
 async function configuration(page: Page) {
   await page.getByTestId('sh-user-menu').click()
   await page.getByTestId('sh-user-menu-admin-settings').click()
-  await page.getByRole('button', { name: 'OpenAI-compatible', exact: true }).click()
+  await page.getByRole('button', { name: categoryLabel, exact: true }).click()
 }
 for (const [name, viewport] of Object.entries({ desktop: { width: 1365, height: 1000 }, mobile: { width: 390, height: 844 } })) {
   test(`real configuration navigation preserves unsaved drafts — ${name}`, async ({ page }, testInfo) => {
@@ -25,7 +28,8 @@ for (const [name, viewport] of Object.entries({ desktop: { width: 1365, height: 
     await page.getByRole('button', { name: 'Sign In', exact: true }).click()
     await expect(page).toHaveURL(/\/$/)
     await configuration(page)
-    const model = page.locator('input[aria-label="ChatModel"]:visible')
+    const model = page.getByRole('textbox', { name: fieldName, exact: true })
+    await expect(model, 'Choose an advertised editable nonsecret field for this instance policy').toBeEditable()
     const baseline = await model.inputValue()
     await model.fill('unsaved-navigation-proof')
     await page.evaluate(() => history.back())
@@ -40,7 +44,7 @@ for (const [name, viewport] of Object.entries({ desktop: { width: 1365, height: 
     expect(Math.abs(bounds!.y + bounds!.height / 2 - viewport.height / 2)).toBeLessThan(2)
     await page.keyboard.press('Shift+Tab')
     await expect(prompt.getByRole('button', { name: 'Save changes and leave' })).toBeFocused()
-    await page.screenshot({ path: testInfo.outputPath(`navigation-${name}.png`), fullPage: true })
+    await page.screenshot({ path: testInfo.outputPath(`navigation-${name}.png`), fullPage: false })
     await page.keyboard.press('Escape')
     await expect(prompt).not.toBeVisible()
     await expect(model).toHaveValue('unsaved-navigation-proof')
@@ -56,12 +60,12 @@ for (const [name, viewport] of Object.entries({ desktop: { width: 1365, height: 
     await expect(page).toHaveURL(/\/$/)
     expect(writes).toBe(0)
     await page.goForward()
-    await page.getByRole('button', { name: 'OpenAI-compatible', exact: true }).click()
+    await page.getByRole('button', { name: categoryLabel, exact: true }).click()
     await expect(model).toHaveValue(baseline)
-    // Save the unchanged baseline: exercise the real authenticated API without changing provider behavior.
+    // Save the unchanged baseline: exercise the real authenticated API without changing instance behavior.
     await model.fill(baseline + '-draft')
     await model.fill(baseline)
-    await page.route('**/api/v1/admin/config/OpenAiCompatible', async route => {
+    await page.route(`**/api/v1/admin/config/${category}`, async route => {
       if (route.request().method() === 'PUT') await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'Navigation conflict fixture' }) })
       else await route.continue()
     })
@@ -71,7 +75,7 @@ for (const [name, viewport] of Object.entries({ desktop: { width: 1365, height: 
     await expect(page).toHaveURL(/\/admin\/settings$/)
     await prompt.getByRole('button', { name: 'Stay', exact: true }).click()
     await expect(model).toHaveValue(baseline)
-    await page.unroute('**/api/v1/admin/config/OpenAiCompatible')
+    await page.unroute(`**/api/v1/admin/config/${category}`)
     await page.evaluate(() => history.back())
     await prompt.getByRole('button', { name: 'Save changes and leave' }).click()
     await expect(page).toHaveURL(/\/$/)
@@ -82,6 +86,6 @@ for (const [name, viewport] of Object.entries({ desktop: { width: 1365, height: 
     await page.getByTestId('sh-logo-link').click()
     await expect(page).toHaveURL(/\/$/)
     expect(errors).toEqual([])
-    await testInfo.attach('navigation-evidence', { body: JSON.stringify({ viewport, writes, errors, auth: 'real', realSave: true, injectedConflict: true, browserBackForward: true, nativeFocusTrap: true }), contentType: 'application/json' })
+    await testInfo.attach('navigation-evidence', { body: JSON.stringify({ viewport, category, fieldName, writes, errors, auth: 'real', realSave: true, injectedConflict: true, browserBackForward: true, nativeFocusTrap: true }), contentType: 'application/json' })
   })
 }

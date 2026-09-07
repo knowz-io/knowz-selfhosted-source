@@ -6,22 +6,26 @@ Knowz Self-Hosted runs the Knowz knowledge model on your own host: your database
 
 ## Install (customers)
 
-The primary install is the Knowz CLI. `knowz up` pulls published GHCR **release images** and starts the web UI. You do not clone a repository, check out this tree, or build from source.
+These instructions target the **Knowz CLI 0.5.0 preview**. The CLI version and selfhosted image version are separate. `knowz up` opens local browser setup, pulls published GHCR **release images**, and starts the web UI. No source checkout or build is required.
 
 ```bash
-npx @knowzai/cli@latest up
+npx @knowzai/cli@0.5.0 up
 ```
 
 Or install once, then run:
 
 ```bash
-npm i -g @knowzai/cli
+npm i -g @knowzai/cli@0.5.0
 knowz up
 ```
 
+Node-free native preview installers and their checksums are listed in [Knowz CLI releases](https://github.com/knowz-io/knowz-cli/releases). The 0.5.0 native preview is unsigned and not notarized; use the status recorded for your exact artifact. The npm commands above require Node.js.
+
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose) and [Node.js 22+](https://nodejs.org/). Default edition is self-hosted. The CLI generates secrets, opens a loopback setup page, and pulls the current public image triple (`ghcr.io/knowz-io/knowz-selfhosted-api`, `knowz-selfhosted-web`, `knowz-selfhosted-mcp`). No GitHub login.
 
-When the stack is healthy, open [http://localhost:3000](http://localhost:3000). The installer creates the first administrator. Further accounts are created by an administrator. Stop with `knowz down` (data volumes are preserved).
+Setup creates the first administrator (`admin`). If you leave the password blank, use **Show password** or **Copy password** in the setup result to save the generated temporary password; it is shown once. Sign in at the Web URL and change that temporary password before continuing. Return to **Connect CLI** with your current password to finish CLI access. A healthy stack can say **Finish signing in** until this completes. Further accounts are created by an administrator. Stop with `knowz down` (data volumes are preserved).
+
+Use the URLs shown by setup; these are defaults when no ports were remapped:
 
 | Service | URL |
 |---------|-----|
@@ -29,7 +33,7 @@ When the stack is healthy, open [http://localhost:3000](http://localhost:3000). 
 | API | [http://localhost:5000](http://localhost:5000) |
 | MCP Server | [http://localhost:3001](http://localhost:3001) |
 
-Swagger is off by default; set `ENABLE_SWAGGER=true` (or `SelfHosted__EnableSwagger=true`) to serve `/swagger` for local debug. Source compose does not publish Postgres on the host — see [Configuration](docs/CONFIGURATION.md#connection-strings). `AllowedHosts` is localhost plus loopback (compose also adds the container DNS name), not `*`; set `ALLOWED_HOSTS` when using a public hostname.
+Swagger is off by default; set `ENABLE_SWAGGER=true` (or `SelfHosted__EnableSwagger=true`) to serve `/swagger` for local debug. The CLI-managed stack and source compose do not publish Postgres on the host — see [Configuration](docs/CONFIGURATION.md#connection-strings). `AllowedHosts` is localhost plus loopback (compose also adds the container DNS name), not `*`; set `ALLOWED_HOSTS` when using a public hostname.
 
 Operators and contributors who need to customize or build locally: see [Contributing](CONTRIBUTING.md) and [Compose from a checkout](#compose-from-a-checkout-operators-only).
 
@@ -95,7 +99,7 @@ It is not a copy of Knowz Cloud. There is no public sign-up — the installer cr
 | **API** | .NET 10 Minimal API | REST API, auth, enrichment pipeline, file storage |
 | **Web** | React 19 + Vite + Tailwind | Single-page application |
 | **MCP** | .NET 10 + MCP SDK | Model Context Protocol server for AI tools |
-| **Database** | PostgreSQL 16 + pgvector | Single `knowz_selfhosted` database on port `5432`; vector search uses the `<=>` distance operator |
+| **Database** | PostgreSQL 16 + pgvector | Single `knowz_selfhosted` database at internal `db:5432` (no host binding); vector search uses the `<=>` distance operator |
 | **File storage** | Local filesystem or Azure Blob | Uploaded files and attachments |
 | **AI provider** | OpenAI-compatible, Azure OpenAI, or none | Chat, summarization, entity extraction, embeddings — all optional |
 
@@ -228,11 +232,15 @@ docker compose up --build
 
 ### Knowz CLI (customers)
 
+Use `knowz up` to start or reconnect to an existing installation. Upgrade deliberately to a compatible, published selfhosted version:
+
 ```bash
-knowz up
+knowz backup --edition selfhosted --encrypt --out knowz-before-upgrade.tar.gz.enc
+knowz runtime upgrade --edition selfhosted --version 0.16.2
+knowz runtime status --edition selfhosted
 ```
 
-The CLI pulls the current complete public **release images**. The API applies database migrations on startup. Data volumes are preserved.
+Use the same `--name` on every command for a named installation. Keep the backup passphrase separately from the archive. Upgrade preserves database, file and protection-key volumes; the API applies any required migrations on startup. If sign-in needs attention, use the current password with `knowz setup --name <name>`; changing the bootstrap password in `.env` does not reset an existing account. See the [Quickstart recovery instructions](docs/QUICKSTART.md#stopping-restarting-and-recovering).
 
 ### Compose from a checkout (operators only)
 
@@ -256,8 +264,8 @@ Or use the helper script:
 
 - Container images are pulled from GHCR (public registry, no auth needed)
 - Database migrations run automatically on API startup
-- No data loss -- database and storage are preserved
-- Brief downtime (~30 seconds) while containers restart
+- Database, file and protection-key volumes are preserved; keep a verified backup before upgrading
+- Services are briefly unavailable while containers restart; duration depends on image downloads and migrations
 - Health checks verify all services are running after update
 
 ## API Reference
@@ -471,7 +479,7 @@ docker compose up --build
 
 | Document | Description |
 |----------|-------------|
-| [Quickstart Guide](docs/QUICKSTART.md) | Customer install via `npx @knowzai/cli@latest up` / `knowz up` (release images, no source) |
+| [Quickstart Guide](docs/QUICKSTART.md) | Customer install via `npx @knowzai/cli@0.5.0 up` / `knowz up` (release images, no source) |
 | [Configuration Reference](docs/CONFIGURATION.md) | All environment variables and settings |
 | [Architecture Overview](docs/ARCHITECTURE.md) | System design, service diagram, data flow |
 | [Contributing](CONTRIBUTING.md) | Development setup, PR process, coding standards |
