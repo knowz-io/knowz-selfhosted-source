@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- NuGet Package -->
+    <PackageId>Knowz.Core</PackageId>
+    <Version>1.12.0</Version>
+    <Description>Core domain entities, interfaces, and specifications for the Knowz platform. Used by Knowz Self-Hosted and platform projects.</Description>
+    <Authors>Knowz</Authors>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/knowz-platform/knowz-selfhosted</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/knowz-platform/knowz-selfhosted</RepositoryUrl>
+    <PackageTags>knowz;knowledge-management;domain</PackageTags>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+
+    <!-- SourceLink: enables consumers to step into source when debugging -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Ardalis.Specification" Version="9.3.1" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.400" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+  </ItemGroup>
+
+</Project>

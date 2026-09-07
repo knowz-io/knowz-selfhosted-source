@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Sdk Name="Aspire.AppHost.Sdk" Version="9.5.2" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsAspireHost>true</IsAspireHost>
+    <UserSecretsId>knowz-selfhosted-apphost</UserSecretsId>
+    <!-- Lock files are RID-unstable here: Aspire.AppHost.Sdk injects Aspire.Dashboard.Sdk.<host-RID>
+         (osx-arm64 locally, linux-x64 in CI), so one committed lock can never satisfy both.
+         Dev-only orchestrator — excluded from locked-mode enforcement (mirrors src/Knowz.AppHost). -->
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" Version="13.5.3" />
+    <PackageReference Include="Aspire.Hosting.AppHost" Version="13.5.3" />
+    <PackageReference Include="Aspire.Hosting.NodeJs" Version="9.5.2" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.5.3" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.11" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Knowz.SelfHosted.API\Knowz.SelfHosted.API.csproj" />
+    <ProjectReference Include="..\Knowz.MCP\Knowz.MCP.csproj" />
+  </ItemGroup>
+</Project>

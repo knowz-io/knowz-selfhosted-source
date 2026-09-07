@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..800;1,14..32,300..600&display=swap');
+@import './styles/design-tokens.css';
+
+/*
+ * SH_InstanceCopyHygiene R8 — the brand wordmark font ships locally so an
+ * air-gapped install renders the wordmark instead of falling back to a system
+ * script face. No Google Fonts <link> and no system-script fallback.
+ */
+@font-face {
+  font-family: 'Pacifico';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/pacifico-v23-latin.woff2') format('woff2');
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-logo-script: 'Pacifico', cursive;
+    --background: 210 24% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --muted: 210 28% 95.5%;
+    --muted-foreground: 215 18% 41%;
+    --border: 214 27% 89%;
+    --input: 214 27% 89%;
+    --ring: 221.2 83.2% 53.3%;
+    --accent: 210 30% 95%;
+    --accent-foreground: 222 47% 11%;
+    --sidebar: 210 26% 96.5%;
+    --sidebar-foreground: 222 40% 20%;
+    --sidebar-muted: 214 25% 88%;
+    --sidebar-accent: 221 83% 53%;
+  }
+
+  .dark {
+    --background: 222 32% 7%;
+    --foreground: 210 40% 98%;
+    --card: 222 26% 11%;
+    --card-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222 47% 11%;
+    --muted: 220 22% 16%;
+    --muted-foreground: 217 16% 68%;
+    --border: 220 18% 20%;
+    --input: 220 18% 22%;
+    --ring: 217 91% 60%;
+    --accent: 220 22% 17%;
+    --accent-foreground: 210 40% 98%;
+    --sidebar: 222 30% 9%;
+    --sidebar-foreground: 214 20% 82%;
+    --sidebar-muted: 220 18% 18%;
+    --sidebar-accent: 217 91% 60%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    overflow-x: clip;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+body,
+aside,
+header,
+main,
+nav {
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+@layer components {
+  .sh-surface {
+    @apply border border-border bg-card text-card-foreground shadow-elev-1;
+    border-radius: var(--radius-lg);
+  }
+
+  .sh-toolbar {
+    @apply border border-border bg-card shadow-elev-1;
+    border-radius: var(--radius-lg);
+  }
+
+  .sh-hero {
+    @apply border border-border bg-card px-6 py-6 shadow-elev-1 sm:px-7 sm:py-7;
+    border-radius: var(--radius-lg);
+  }
+
+  .sh-kicker {
+    @apply t-eyebrow text-primary;
+  }
+
+  .sh-stat {
+    @apply border border-border bg-card px-4 py-3 shadow-elev-1;
+    border-radius: var(--radius-lg);
+  }
+}

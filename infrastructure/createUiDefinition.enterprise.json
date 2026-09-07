@@ -1,0 +1,462 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "config": {
+      "isWizard": true
+    },
+    "basics": [
+      {
+        "name": "prefix",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Resource Prefix",
+        "toolTip": "A short prefix for all Azure resource names (2-8 lowercase alphanumeric characters or hyphens). For example, 'kze' creates resources like 'kze-sql', 'kze-api', etc.",
+        "defaultValue": "kze",
+        "constraints": {
+          "required": true,
+          "regex": "^[a-z][a-z0-9-]{0,6}[a-z0-9]$",
+          "validationMessage": "Must be 2-8 characters: lowercase letters, digits, or hyphens. Must start with a letter and end with a letter or digit."
+        }
+      }
+    ],
+    "steps": [
+      {
+        "name": "database",
+        "label": "Database & Security",
+        "elements": [
+          {
+            "name": "aadInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "options": {
+              "text": "The enterprise template uses AAD-only SQL authentication (no SQL admin password). You must provide an Azure AD user or group that will be the SQL administrator.",
+              "style": "Info"
+            }
+          },
+          {
+            "name": "aadAdminDisplayName",
+            "type": "Microsoft.Common.TextBox",
+            "label": "AAD Admin Display Name",
+            "toolTip": "Display name of the Azure AD user or group that will be the SQL Server administrator. Example: 'DBA Team' or 'Jane Doe'.",
+            "defaultValue": "",
+            "constraints": {
+              "required": true,
+              "regex": "^[A-Za-z0-9 _\\-\\.@']{1,128}$",
+              "validationMessage": "Display name is required. Allowed characters: letters, digits, space, underscore, hyphen, period, at-sign, apostrophe. Maximum 128 characters."
+            }
+          },
+          {
+            "name": "aadAdminObjectId",
+            "type": "Microsoft.Common.TextBox",
+            "label": "AAD Admin Object ID",
+            "toolTip": "The Object ID (GUID) of the Azure AD user or group. Find it in Azure Portal > Azure Active Directory > Users (or Groups) > select the user/group > copy the Object ID from the Overview blade.",
+            "defaultValue": "",
+            "constraints": {
+              "required": true,
+              "regex": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+              "validationMessage": "Must be a valid GUID in the format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx. Find it in Azure AD > Users or Groups > Overview."
+            }
+          },
+          {
+            "name": "adminPassword",
+            "type": "Microsoft.Common.PasswordBox",
+            "label": {
+              "password": "SuperAdmin Password",
+              "confirmPassword": "Confirm SuperAdmin Password"
+            },
+            "toolTip": "Password for the Knowz application SuperAdmin account (used to log in to the Web UI). Must be at least 8 characters with uppercase, lowercase, digit, and special character.",
+            "constraints": {
+              "required": true,
+              "regex": "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,128}$",
+              "validationMessage": "Must be 8-128 characters with at least 1 uppercase, 1 lowercase, 1 digit, and 1 special character (@$!%*?&)."
+            },
+            "options": {
+              "hideConfirmation": false
+            }
+          }
+        ]
+      },
+      {
+        "name": "aiServices",
+        "label": "AI Services",
+        "elements": [
+          {
+            "name": "openaiMode",
+            "type": "Microsoft.Common.OptionsGroup",
+            "label": "Azure OpenAI Configuration",
+            "toolTip": "Choose how to configure Azure OpenAI. 'Deploy New' creates a new resource behind a private endpoint. 'Use Existing' references an Azure OpenAI resource you already have. 'External' uses a non-Azure endpoint.",
+            "defaultValue": "Deploy New",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Deploy New", "value": "new" },
+                { "label": "Use Existing Azure Resource", "value": "existing" },
+                { "label": "External Endpoint", "value": "external" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "existingOpenAiName",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Existing OpenAI Resource Name",
+            "toolTip": "Name of your existing Azure OpenAI or AI Services resource.",
+            "defaultValue": "",
+            "visible": "[equals(steps('aiServices').openaiMode, 'existing')]",
+            "constraints": {
+              "required": "[equals(steps('aiServices').openaiMode, 'existing')]"
+            }
+          },
+          {
+            "name": "existingOpenAiResourceGroup",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Resource Group",
+            "toolTip": "Resource group containing the existing OpenAI resource. Leave empty to use the deployment resource group.",
+            "defaultValue": "",
+            "visible": "[equals(steps('aiServices').openaiMode, 'existing')]",
+            "constraints": {
+              "required": false
+            }
+          },
+          {
+            "name": "externalOpenAiEndpoint",
+            "type": "Microsoft.Common.TextBox",
+            "label": "External OpenAI Endpoint",
+            "toolTip": "Your OpenAI-compatible API endpoint URL (e.g., https://your-openai.openai.azure.com/).",
+            "defaultValue": "",
+            "visible": "[equals(steps('aiServices').openaiMode, 'external')]",
+            "constraints": {
+              "required": "[equals(steps('aiServices').openaiMode, 'external')]",
+              "regex": "^https?://.+$",
+              "validationMessage": "Must be a valid URL starting with http:// or https://."
+            }
+          },
+          {
+            "name": "externalOpenAiKey",
+            "type": "Microsoft.Common.PasswordBox",
+            "label": {
+              "password": "External OpenAI API Key",
+              "confirmPassword": "Confirm API Key"
+            },
+            "toolTip": "API key for your external OpenAI-compatible endpoint.",
+            "visible": "[equals(steps('aiServices').openaiMode, 'external')]",
+            "constraints": {
+              "required": "[equals(steps('aiServices').openaiMode, 'external')]"
+            },
+            "options": {
+              "hideConfirmation": true
+            }
+          },
+          {
+            "name": "chatDeploymentName",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Chat Model Deployment Name",
+            "toolTip": "The deployment name for the chat completion model on your existing or external endpoint.",
+            "defaultValue": "gpt-5.2-chat",
+            "visible": "[or(equals(steps('aiServices').openaiMode, 'existing'), equals(steps('aiServices').openaiMode, 'external'))]",
+            "constraints": {
+              "required": "[or(equals(steps('aiServices').openaiMode, 'existing'), equals(steps('aiServices').openaiMode, 'external'))]"
+            }
+          },
+          {
+            "name": "embeddingDeploymentName",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Embedding Model Deployment Name",
+            "toolTip": "The deployment name for the embedding model on your existing or external endpoint. Default: text-embedding-3-large (3072 dims). text-embedding-3-small (1536 dims) remains supported as an option.",
+            "defaultValue": "text-embedding-3-large",
+            "visible": "[or(equals(steps('aiServices').openaiMode, 'existing'), equals(steps('aiServices').openaiMode, 'external'))]",
+            "constraints": {
+              "required": "[or(equals(steps('aiServices').openaiMode, 'existing'), equals(steps('aiServices').openaiMode, 'external'))]"
+            }
+          },
+          {
+            "name": "searchSeparator",
+            "type": "Microsoft.Common.Section",
+            "label": "Azure AI Search",
+            "elements": []
+          },
+          {
+            "name": "searchSku",
+            "type": "Microsoft.Common.DropDown",
+            "label": "AI Search SKU",
+            "toolTip": "The pricing tier for Azure AI Search. Enterprise deployments require Standard or higher to support private endpoints and VNet integration. Standard2/Standard3 provide higher storage and replica limits.",
+            "defaultValue": "Standard",
+            "constraints": {
+              "allowedValues": [
+                {
+                  "label": "Standard",
+                  "value": "standard"
+                },
+                {
+                  "label": "Standard 2",
+                  "value": "standard2"
+                },
+                {
+                  "label": "Standard 3",
+                  "value": "standard3"
+                }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "docIntelSeparator",
+            "type": "Microsoft.Common.Section",
+            "label": "Document Intelligence",
+            "elements": []
+          },
+          {
+            "name": "docIntelMode",
+            "type": "Microsoft.Common.OptionsGroup",
+            "label": "Document Intelligence Configuration",
+            "toolTip": "Choose how to configure Document Intelligence. 'Deploy New' creates a new resource behind a private endpoint. 'Use Existing' references a Document Intelligence resource you already have. 'External' uses a non-Azure endpoint.",
+            "defaultValue": "Deploy New",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Deploy New", "value": "new" },
+                { "label": "Use Existing Azure Resource", "value": "existing" },
+                { "label": "External Endpoint", "value": "external" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "existingDocIntelName",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Existing Document Intelligence Resource Name",
+            "toolTip": "Name of your existing Azure Document Intelligence (Form Recognizer) resource.",
+            "defaultValue": "",
+            "visible": "[equals(steps('aiServices').docIntelMode, 'existing')]",
+            "constraints": {
+              "required": "[equals(steps('aiServices').docIntelMode, 'existing')]"
+            }
+          },
+          {
+            "name": "existingDocIntelResourceGroup",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Resource Group",
+            "toolTip": "Resource group containing the existing Document Intelligence resource. Leave empty to use the deployment resource group.",
+            "defaultValue": "",
+            "visible": "[equals(steps('aiServices').docIntelMode, 'existing')]",
+            "constraints": {
+              "required": false
+            }
+          },
+          {
+            "name": "externalDocIntelEndpoint",
+            "type": "Microsoft.Common.TextBox",
+            "label": "External Document Intelligence Endpoint",
+            "toolTip": "Your Document Intelligence API endpoint URL (e.g., https://your-docintel.cognitiveservices.azure.com/).",
+            "defaultValue": "",
+            "visible": "[equals(steps('aiServices').docIntelMode, 'external')]",
+            "constraints": {
+              "required": "[equals(steps('aiServices').docIntelMode, 'external')]",
+              "regex": "^(https?://.+)?$",
+              "validationMessage": "Must be a valid URL starting with http:// or https://."
+            }
+          },
+          {
+            "name": "externalDocIntelKey",
+            "type": "Microsoft.Common.PasswordBox",
+            "label": {
+              "password": "External Document Intelligence API Key",
+              "confirmPassword": "Confirm API Key"
+            },
+            "toolTip": "API key for your external Document Intelligence endpoint.",
+            "visible": "[equals(steps('aiServices').docIntelMode, 'external')]",
+            "constraints": {
+              "required": "[equals(steps('aiServices').docIntelMode, 'external')]"
+            },
+            "options": {
+              "hideConfirmation": true
+            }
+          },
+          {
+            "name": "visionSeparator",
+            "type": "Microsoft.Common.Section",
+            "label": "Azure AI Vision",
+            "elements": []
+          },
+          {
+            "name": "visionMode",
+            "type": "Microsoft.Common.OptionsGroup",
+            "label": "Azure AI Vision Configuration",
+            "toolTip": "Choose how to configure Azure AI Vision. 'Deploy New' creates a new resource behind a private endpoint. 'Use Existing' references an Azure AI Vision resource you already have. 'External' uses a non-Azure endpoint.",
+            "defaultValue": "Deploy New",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Deploy New", "value": "new" },
+                { "label": "Use Existing Azure Resource", "value": "existing" },
+                { "label": "External Endpoint", "value": "external" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "existingVisionName",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Existing Azure AI Vision Resource Name",
+            "toolTip": "Name of your existing Azure AI Vision (Computer Vision) resource.",
+            "defaultValue": "",
+            "visible": "[equals(steps('aiServices').visionMode, 'existing')]",
+            "constraints": {
+              "required": "[equals(steps('aiServices').visionMode, 'existing')]"
+            }
+          },
+          {
+            "name": "existingVisionResourceGroup",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Resource Group",
+            "toolTip": "Resource group containing the existing Azure AI Vision resource. Leave empty to use the deployment resource group.",
+            "defaultValue": "",
+            "visible": "[equals(steps('aiServices').visionMode, 'existing')]",
+            "constraints": {
+              "required": false
+            }
+          },
+          {
+            "name": "externalVisionEndpoint",
+            "type": "Microsoft.Common.TextBox",
+            "label": "External Vision Endpoint",
+            "toolTip": "Your Azure AI Vision API endpoint URL (e.g., https://your-vision.cognitiveservices.azure.com/).",
+            "defaultValue": "",
+            "visible": "[equals(steps('aiServices').visionMode, 'external')]",
+            "constraints": {
+              "required": "[equals(steps('aiServices').visionMode, 'external')]",
+              "regex": "^(https?://.+)?$",
+              "validationMessage": "Must be a valid URL starting with http:// or https://."
+            }
+          },
+          {
+            "name": "externalVisionKey",
+            "type": "Microsoft.Common.PasswordBox",
+            "label": {
+              "password": "External Vision API Key",
+              "confirmPassword": "Confirm API Key"
+            },
+            "toolTip": "API key for your external Azure AI Vision endpoint.",
+            "visible": "[equals(steps('aiServices').visionMode, 'external')]",
+            "constraints": {
+              "required": "[equals(steps('aiServices').visionMode, 'external')]"
+            },
+            "options": {
+              "hideConfirmation": true
+            }
+          }
+        ]
+      },
+      {
+        "name": "container",
+        "label": "Container Images",
+        "elements": [
+          {
+            "name": "imageTag",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Image Tag",
+            "toolTip": "The container image tag to deploy (e.g., 'latest', 'v1.0.0').",
+            "defaultValue": "latest",
+            "constraints": {
+              "required": true,
+              "regex": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+              "validationMessage": "Must be a valid container image tag."
+            }
+          },
+          {
+            "name": "ghcrInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "options": {
+              "text": "Images are public on GHCR. Credentials only needed for private registries.",
+              "style": "Info"
+            }
+          },
+          {
+            "name": "registryUsername",
+            "type": "Microsoft.Common.TextBox",
+            "label": "GHCR Username (optional)",
+            "toolTip": "GitHub username or organization for GHCR authentication. Leave empty for public images.",
+            "defaultValue": "",
+            "constraints": {
+              "required": false
+            }
+          },
+          {
+            "name": "registryPassword",
+            "type": "Microsoft.Common.PasswordBox",
+            "label": {
+              "password": "GHCR Token (optional)",
+              "confirmPassword": "Confirm GHCR Token"
+            },
+            "toolTip": "GitHub Personal Access Token with 'read:packages' scope. Leave empty for public images.",
+            "constraints": {
+              "required": false
+            },
+            "options": {
+              "hideConfirmation": true
+            }
+          }
+        ]
+      },
+      {
+        "name": "advanced",
+        "label": "Advanced",
+        "elements": [
+          {
+            "name": "enterpriseInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "options": {
+              "text": "This template deploys with VNet isolation, private endpoints, Azure Front Door with WAF, AAD-only SQL authentication, and full diagnostic logging. All resources are policy-compliant for Azure landing zones.",
+              "style": "Info"
+            }
+          },
+          {
+            "name": "tags",
+            "type": "Microsoft.Common.TagsByResource",
+            "label": "Resource Tags",
+            "toolTip": "Tags applied to all resources. Organizations typically add their own via Azure Policy. The template also applies default tags (project, environment, tier, managed-by).",
+            "resources": [
+              "Microsoft.Resources/resourceGroups"
+            ]
+          },
+          {
+            "name": "costInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "options": {
+              "text": "Estimated monthly cost: ~$200-300/month for standard SKUs with Front Door Premium. Breakdown: Azure AI Search Standard (~$250), Front Door Premium (~$35), SQL Server (~$15), Storage GRS (~$2), Container Apps (~$10-15), Key Vault (~$1), Log Analytics (~$5). Azure OpenAI is pay-per-use based on token consumption. Document Intelligence is pay-per-page.",
+              "style": "Warning"
+            }
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "prefix": "[basics('prefix')]",
+      "location": "[location()]",
+      "aadAdminObjectId": "[steps('database').aadAdminObjectId]",
+      "aadAdminDisplayName": "[steps('database').aadAdminDisplayName]",
+      "adminPassword": "[steps('database').adminPassword]",
+      "deployOpenAI": "[equals(steps('aiServices').openaiMode, 'new')]",
+      "existingOpenAiName": "[if(equals(steps('aiServices').openaiMode, 'existing'), steps('aiServices').existingOpenAiName, '')]",
+      "existingOpenAiResourceGroup": "[if(equals(steps('aiServices').openaiMode, 'existing'), steps('aiServices').existingOpenAiResourceGroup, '')]",
+      "externalOpenAiEndpoint": "[if(equals(steps('aiServices').openaiMode, 'external'), steps('aiServices').externalOpenAiEndpoint, '')]",
+      "externalOpenAiKey": "[if(equals(steps('aiServices').openaiMode, 'external'), steps('aiServices').externalOpenAiKey, '')]",
+      "chatDeploymentName": "[if(equals(steps('aiServices').openaiMode, 'new'), 'gpt-5.2-chat', steps('aiServices').chatDeploymentName)]",
+      "embeddingDeploymentName": "[if(equals(steps('aiServices').openaiMode, 'new'), 'text-embedding-3-large', steps('aiServices').embeddingDeploymentName)]",
+      "embeddingModelNameParam": "text-embedding-3-large",
+      "embeddingDimensions": 3072,
+      "deployDocumentIntelligence": "[equals(steps('aiServices').docIntelMode, 'new')]",
+      "existingDocIntelName": "[if(equals(steps('aiServices').docIntelMode, 'existing'), steps('aiServices').existingDocIntelName, '')]",
+      "existingDocIntelResourceGroup": "[if(equals(steps('aiServices').docIntelMode, 'existing'), steps('aiServices').existingDocIntelResourceGroup, '')]",
+      "externalDocIntelEndpoint": "[if(equals(steps('aiServices').docIntelMode, 'external'), steps('aiServices').externalDocIntelEndpoint, '')]",
+      "externalDocIntelKey": "[if(equals(steps('aiServices').docIntelMode, 'external'), steps('aiServices').externalDocIntelKey, '')]",
+      "deployVision": "[equals(steps('aiServices').visionMode, 'new')]",
+      "existingVisionName": "[if(equals(steps('aiServices').visionMode, 'existing'), steps('aiServices').existingVisionName, '')]",
+      "existingVisionResourceGroup": "[if(equals(steps('aiServices').visionMode, 'existing'), steps('aiServices').existingVisionResourceGroup, '')]",
+      "externalVisionEndpoint": "[if(equals(steps('aiServices').visionMode, 'external'), steps('aiServices').externalVisionEndpoint, '')]",
+      "externalVisionKey": "[if(equals(steps('aiServices').visionMode, 'external'), steps('aiServices').externalVisionKey, '')]",
+      "searchSku": "[steps('aiServices').searchSku]",
+      "imageTag": "[steps('container').imageTag]",
+      "registryUsername": "[steps('container').registryUsername]",
+      "registryPassword": "[steps('container').registryPassword]",
+      "tags": "[if(contains(steps('advanced').tags, 'Microsoft.Resources/resourceGroups'), steps('advanced').tags['Microsoft.Resources/resourceGroups'], parse('{}'))]"
+    }
+  }
+}

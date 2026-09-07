@@ -1,0 +1,150 @@
+name: Self-Hosted Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for manual release"
+        required: false
+        default: "Manual trigger"
+
+jobs:
+  release:
+    if: github.repository == 'knowz-io/knowz-selfhosted'
+    name: Build & Publish to GHCR
+    runs-on: ubuntu-latest
+    # 45 min gives headroom for cold-cache builds and GHCR contention.
+    # Normal runs are ~15 min; v0.6.3 hit the 30 min cap on a slow run.
+    timeout-minutes: 45
+
+    permissions:
+      packages: write
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- API Image ---
+      - name: Extract metadata for API
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/knowz-io/knowz-selfhosted-api
+          tags: |
+            type=semver,pattern={{version}}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/Knowz.SelfHosted.API/Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+
+      # --- Web Image ---
+      - name: Extract metadata for Web
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/knowz-io/knowz-selfhosted-web
+          tags: |
+            type=semver,pattern={{version}}
+
+      - name: Build and push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: src/knowz-selfhosted-web
+          file: src/knowz-selfhosted-web/Dockerfile
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+
+      # --- MCP Image ---
+      - name: Extract metadata for MCP
+        id: meta-mcp
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/knowz-io/knowz-selfhosted-mcp
+          tags: |
+            type=semver,pattern={{version}}
+
+      - name: Build and push MCP image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/Knowz.MCP/Dockerfile
+          push: true
+          tags: ${{ steps.meta-mcp.outputs.tags }}
+          labels: ${{ steps.meta-mcp.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+
+      # A semver component may be staged early; this descriptor proves image completeness only.
+      - name: Verify anonymous complete multiarch image set
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/verify-release.mjs "${GITHUB_REF_NAME#v}" selfhosted-release.json
+
+      - name: Prepare exact published-image smoke
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {randomBytes} from 'node:crypto';
+          const release=JSON.parse(readFileSync('selfhosted-release.json'));
+          const lines=['services:'];
+          for(const component of ['api','web','mcp']) lines.push(`  ${component}:`, `    image: ghcr.io/knowz-io/knowz-selfhosted-${component}@${release.digests[component]}`);
+          writeFileSync('release.override.yml',lines.join('\n')+'\n');
+          const secrets={JWT_SECRET:randomBytes(32).toString('hex'),ADMIN_USERNAME:'release-admin',ADMIN_PASSWORD:'Kz9!'+randomBytes(24).toString('hex'),MCP_SERVICE_KEY:randomBytes(32).toString('hex'),POSTGRES_PASSWORD:randomBytes(24).toString('hex')};
+          writeFileSync('.env',Object.entries(secrets).map(([k,v])=>`${k}=${v}`).join('\n')+'\n',{mode:0o600});
+          NODE
+          docker compose -p knowz-release -f docker-compose.yml -f release.override.yml up -d --no-build --wait --wait-timeout 180
+          curl --fail --silent --show-error http://127.0.0.1:5000/healthz >/dev/null
+
+      - name: Stage complete image descriptor as prerelease
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --latest=false --title "Selfhosted ${GITHUB_REF_NAME#v}" --notes 'Staged complete API/web/MCP image set; see digest manifest. Stable promotion requires installed CLI acceptance.'
+          gh release upload "$GITHUB_REF_NAME" selfhosted-release.json
+
+      - name: Clean smoke runtime
+        if: always()
+        run: |
+          if test -f release.override.yml; then docker compose -p knowz-release -f docker-compose.yml -f release.override.yml down --volumes; fi
+          rm -f .env
+
+      # --- Summary ---
+      - name: Release summary
+        if: always()
+        run: |
+          echo "## Self-Hosted Release" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Images" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/knowz-io/knowz-selfhosted-api\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/knowz-io/knowz-selfhosted-web\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/knowz-io/knowz-selfhosted-mcp\`" >> $GITHUB_STEP_SUMMARY

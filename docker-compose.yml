@@ -1,0 +1,165 @@
+# Knowz Self-Hosted Docker Compose
+# Usage: docker compose up --build
+#
+# Services:
+#   db  - PostgreSQL 16 + pgvector
+#   api - Knowz Self-Hosted API (.NET 10)
+#   web - Knowz Self-Hosted Web (React + nginx)
+#   mcp - Knowz MCP Server (Model Context Protocol for AI tools)
+#
+# First run: API auto-migrates the database and seeds SuperAdmin from the
+# ADMIN_USERNAME / ADMIN_PASSWORD values in your .env. No defaults ship.
+# FAIL-CLOSED CREDS: every secret uses ${VAR:?message} — `up` aborts with a
+# clear message if POSTGRES_PASSWORD, JWT_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD,
+# or MCP_SERVICE_KEY is unset. See .env.example for generation guidance.
+# Access: http://localhost:3000 (web) | http://localhost:5000 (API) | http://localhost:3001 (MCP)
+# Swagger/OpenAPI is off. For local debug only: set ENABLE_SWAGGER=true in .env.
+# Database host port is not published. API reaches Postgres on the compose network.
+#
+# AI: Copy .env.example to .env. Easiest: uncomment KNOWZ_PLATFORM section + paste your API key.
+# No .env = no AI (Mode 1). Get your API key at https://knowz.io → Settings → API Keys.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: knowz
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
+      POSTGRES_DB: knowz_selfhosted
+    # No host port. Other compose services reach Postgres as Host=db;Port=5432.
+    # 0.16.0 published compose still mapped 127.0.0.1:${DB_PORT:-5432}:5432 —
+    # that loopback publish is no longer the default. Opt-in (loopback only):
+    #   ports:
+    #     - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - knowz-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knowz -d knowz_selfhosted"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: src/Knowz.SelfHosted.API/Dockerfile
+    ports:
+      - "${API_PORT:-5000}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Required: Database connection
+      ConnectionStrings__McpDb: "Host=db;Port=5432;Database=knowz_selfhosted;Username=knowz;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+      Database__AutoMigrate: "true"
+      KNOWZ_AI_CONFIG_UPDATED_AT: "${KNOWZ_AI_CONFIG_UPDATED_AT:-}"
+      KNOWZ_AI_DISABLED: "${KNOWZ_AI_DISABLED:-false}"
+      DataProtection__KeysPath: "/data/keys"
+
+      # Required: Authentication — MUST be supplied via .env (no defaults).
+      # Copy .env.example to .env and set JWT_SECRET (>=32 chars, cryptographically random),
+      # ADMIN_USERNAME, and ADMIN_PASSWORD (>=12 chars mixed alpha-num-symbol, not on the
+      # weak-password denylist in AuthService.WeakPasswordList). First boot will fail fast
+      # if any are missing or weak — by design, per SEC_P0Triage.
+      SelfHosted__JwtSecret: "${JWT_SECRET:?JWT_SECRET must be set in .env (>=32 chars)}"
+      SelfHosted__SuperAdminUsername: "${ADMIN_USERNAME:?ADMIN_USERNAME must be set in .env}"
+      SelfHosted__SuperAdminPassword: "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in .env}"
+      SelfHosted__RequireSuperAdminPasswordChange: "${ADMIN_PASSWORD_REQUIRES_CHANGE:-false}"
+
+      # Security: CORS (restrict to web container's external URL)
+      SelfHosted__AllowedOrigins__0: "http://localhost:3000"
+
+      # Security: Rate limiting (enabled by default)
+      SelfHosted__RateLimiting__Enabled: "true"
+
+      # Swagger/OpenAPI off unless ENABLE_SWAGGER=true (local debug only)
+      SelfHosted__EnableSwagger: "${ENABLE_SWAGGER:-false}"
+
+      # Host filter — localhost + container DNS. Image appsettings matches
+      # localhost;127.0.0.1;[::1] (not *). Public hostname: set ALLOWED_HOSTS.
+      AllowedHosts: "${ALLOWED_HOSTS:-localhost;127.0.0.1;[::1];api}"
+
+      # MCP service-to-service key (must match MCP container's MCP__ServiceKey)
+      MCP__ServiceKey: "${MCP_SERVICE_KEY:?MCP_SERVICE_KEY must be set in .env}"
+
+      # Storage: Local filesystem with volume mount
+      Storage__Provider: "LocalFileSystem"
+      Storage__Local__RootPath: "/data/files"
+
+      # AI Services — Mode 2: OpenAI-compatible (LM Studio / Ollama / vLLM / OpenAI)
+      OpenAiCompatible__Endpoint: "${OPENAI_COMPAT_ENDPOINT:-}"
+      OpenAiCompatible__ApiKey: "${OPENAI_COMPAT_APIKEY:-}"
+      OpenAiCompatible__ChatModel: "${OPENAI_COMPAT_CHAT_MODEL:-}"
+      OpenAiCompatible__EmbeddingModel: "${OPENAI_COMPAT_EMBEDDING_MODEL:-}"
+      OpenAiCompatible__EmbeddingDimensions: "${EMBEDDING_DIMENSIONS:-1536}"
+
+      # AI Services — Mode 2: Direct Azure (configure in .env, see .env.example)
+      AzureOpenAI__Endpoint: "${AZURE_OPENAI_ENDPOINT:-}"
+      AzureOpenAI__ApiKey: "${AZURE_OPENAI_APIKEY:-}"
+      AzureOpenAI__DeploymentName: "${AZURE_OPENAI_DEPLOYMENT:-gpt-5.4}"
+      AzureOpenAI__EmbeddingDeploymentName: "${AZURE_OPENAI_EMBEDDING:-text-embedding-3-small}"
+      # Embedding dim/model — MUST match the deployed embedding model.
+      # text-embedding-3-large -> 3072 (default), text-embedding-3-small / ada-002 -> 1536.
+      # Mismatch causes search schema/query vector dim mismatch. API fails fast
+      # on missing Embedding__Dimensions. See ARCH_EmbeddingConfigOwnership.
+      Embedding__ModelName: "${EMBEDDING_MODEL_NAME:-text-embedding-3-small}"
+      Embedding__Dimensions: "${EMBEDDING_DIMENSIONS:-1536}"
+      AzureAISearch__Endpoint: "${AZURE_SEARCH_ENDPOINT:-}"
+      AzureAISearch__ApiKey: "${AZURE_SEARCH_APIKEY:-}"
+      AzureAISearch__IndexName: "${AZURE_SEARCH_INDEX:-knowz-selfhosted}"
+
+      # AI Services — Mode 3: Platform Proxy (configure in .env, see .env.example)
+      KnowzPlatform__Enabled: "${KNOWZ_PLATFORM_ENABLED:-false}"
+      KnowzPlatform__BaseUrl: "${KNOWZ_PLATFORM_URL:-}"
+      KnowzPlatform__ApiKey: "${KNOWZ_PLATFORM_APIKEY:-}"
+    volumes:
+      - knowz-file-storage:/data/files
+      - knowz-protected-keys:/data/keys
+      - knowz-protected-keys:/home/app/.aspnet/DataProtection-Keys
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: curl -f http://localhost:8080/healthz || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  web:
+    build:
+      context: src/knowz-selfhosted-web
+      dockerfile: Dockerfile
+    ports:
+      - "${WEB_PORT:-3000}:8080"
+    depends_on:
+      api:
+        condition: service_started
+
+  mcp:
+    build:
+      context: .
+      dockerfile: src/Knowz.MCP/Dockerfile
+    ports:
+      - "${MCP_PORT:-3001}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      Knowz__BaseUrl: "${MCP_API_URL:-http://api:8080}"
+      MCP__BackendMode: "${MCP_BACKEND_MODE:-selfhosted}"
+      MCP__ApiKeyValidationEndpoint: "${MCP_API_KEY_VALIDATION_ENDPOINT:-/api/vaults}"
+      MCP__ServiceKey: "${MCP_SERVICE_KEY:?MCP_SERVICE_KEY must be set in .env}"
+      Authentication__ValidateApiKey: "${MCP_VALIDATE_API_KEY:-true}"
+      AllowedHosts: "${ALLOWED_HOSTS:-localhost;127.0.0.1;[::1];mcp}"
+    healthcheck:
+      test: curl -f http://localhost:8080/.well-known/oauth-authorization-server || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  knowz-db-data:
+  knowz-file-storage:
+  knowz-protected-keys:

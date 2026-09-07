@@ -1,0 +1,80 @@
+{
+  // ==========================================================================
+  // Knowz Selfhosted - Local Configuration Template
+  // ==========================================================================
+  // Copy this file to appsettings.Local.json and fill in your credentials.
+  // appsettings.Local.json is gitignored and will not be committed.
+  //
+  // AI SERVICE TIERS (pick ONE):
+  //   Tier 1: KnowzPlatform — proxy AI through an external platform API (simplest)
+  //   Tier 2: Azure OpenAI + Azure AI Search — direct Azure resources (full-featured)
+  //   Tier 3: (default) NoOp — AI features disabled, auth/admin still work
+  // ==========================================================================
+
+  // ---------------------------------------------------------------------------
+  // OPTION A: Knowz Platform Proxy (Tier 1)
+  // Delegates AI operations to an external platform API. Search is local (keyword).
+  // Requires a valid API key from your platform account.
+  // ---------------------------------------------------------------------------
+  // "KnowzPlatform": {
+  //   "Enabled": "true",
+  //   "BaseUrl": "https://your-platform-api.example.com",
+  //   "ApiKey": "your_platform_api_key"
+  // },
+
+  // ---------------------------------------------------------------------------
+  // OPTION B: Direct Azure OpenAI + Azure AI Search (Tier 2)
+  // Full-featured: vector search, embeddings, completions, enrichment.
+  // Requires your own Azure OpenAI and Azure AI Search resources.
+  // Uncomment and fill in to enable.
+  //
+  // "Embedding" block (ModelName + Dimensions) is REQUIRED whenever Azure AI
+  // Search is used. Dimensions MUST match the deployed embedding model:
+  //   text-embedding-3-small  -> 1536
+  //   text-embedding-3-large  -> 3072
+  //   text-embedding-ada-002  -> 1536
+  // If Embedding:Dimensions is missing, the API fails to start with an
+  // actionable error. See ARCH_EmbeddingConfigOwnership.
+  // ---------------------------------------------------------------------------
+  // "AzureOpenAI": {
+  //   "Endpoint": "https://your-openai-resource.openai.azure.com/",
+  //   "ApiKey": "your-azure-openai-api-key",
+  //   "DeploymentName": "gpt-5.4",
+  //   "EmbeddingDeploymentName": "text-embedding-3-small"
+  // },
+  // "Embedding": {
+  //   "ModelName": "text-embedding-3-small",
+  //   "Dimensions": 1536
+  // },
+  // "AzureAISearch": {
+  //   "Endpoint": "https://your-search-service.search.windows.net/",
+  //   "ApiKey": "your-azure-search-admin-key",
+  //   "IndexName": "knowledge"
+  // },
+
+  // ---------------------------------------------------------------------------
+  // Database (required if not using Aspire local mode with SQL container)
+  // ---------------------------------------------------------------------------
+  // "ConnectionStrings": {
+  //   "McpDb": "Server=tcp:your-server.database.windows.net,1433;Initial Catalog=McpDb;User ID=sqladmin;Password=your-password;Encrypt=True;TrustServerCertificate=False"
+  // },
+
+  // ---------------------------------------------------------------------------
+  // Storage (optional override — Aspire local mode sets LocalFileSystem)
+  // ---------------------------------------------------------------------------
+  // "Storage": {
+  //   "Provider": "Azure",
+  //   "Azure": {
+  //     "ConnectionString": "DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net",
+  //     "ContainerName": "selfhosted-files"
+  //   }
+  // },
+
+  // ---------------------------------------------------------------------------
+  // Authentication (optional override)
+  // ---------------------------------------------------------------------------
+  "SelfHosted": {
+    "ApiKey": "dev-api-key-for-testing",
+    "JwtSecret": "your-secret-key-at-least-32-characters-long-change-in-production"
+  }
+}

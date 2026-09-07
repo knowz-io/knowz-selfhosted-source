@@ -1,0 +1,67 @@
+# =============================================================================
+# Knowz Self-Hosted — Standard Terraform Variables
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in required values.
+# Sensitive values (passwords, keys) should be passed via CLI or env vars:
+#   terraform apply -var sql_admin_password='<secure>'
+#   export TF_VAR_sql_admin_password='<secure>'
+# =============================================================================
+
+# --- General ---
+prefix              = "sh-test"
+location            = "eastus2"
+resource_group_name = "rg-knowz-selfhosted"
+
+# --- SQL ---
+# sql_admin_password = ""  # REQUIRED — pass via CLI or TF_VAR_sql_admin_password
+# SQL is NOT reachable from the public internet by default — only Azure services
+# (the Container Apps) can connect. To allow your own machines (local dev, CI/CD,
+# EF migrations), list scoped CIDRs here. Internet-wide ranges are rejected.
+# sql_allowed_cidrs  = ["203.0.113.7/32"]
+
+# --- Azure OpenAI ---
+deploy_openai           = true
+chat_deployment_name    = "gpt-5.4"
+embedding_deployment_name = "text-embedding-3-large"
+embedding_model_name    = "text-embedding-3-large"
+# Vector dim — MUST match the deployed embedding model.
+# text-embedding-3-small / ada-002 -> 1536, text-embedding-3-large -> 3072.
+embedding_dimensions    = 3072
+# If using external OpenAI (deploy_openai = false):
+# external_openai_endpoint = "https://your-openai.openai.azure.com/"
+# external_openai_key      = ""  # pass via CLI or TF_VAR_external_openai_key
+
+# --- Document Intelligence ---
+deploy_document_intelligence = true
+# If using external Document Intelligence (deploy_document_intelligence = false):
+# external_doc_intel_endpoint = "https://your-docintel.cognitiveservices.azure.com/"
+# external_doc_intel_key      = ""  # pass via CLI or TF_VAR_external_doc_intel_key
+
+# --- AI Search ---
+search_sku      = "basic"
+# search_location = ""  # Override if SKU unavailable in primary location
+
+# --- Key Vault ---
+deploy_key_vault = true
+
+# --- Monitoring ---
+deploy_monitoring = true
+
+# --- Storage ---
+# storage_allow_shared_key_access = true
+
+# --- Container Apps (opt-in) ---
+deploy_container_apps = false
+# image_tag             = "latest"
+# registry_server       = "ghcr.io"
+# registry_username     = ""       # Only for private registries
+# registry_password     = ""       # pass via CLI or TF_VAR_registry_password
+# api_key               = ""       # Auto-generated if empty
+# jwt_secret            = ""       # Auto-generated if empty
+# admin_password        = "<set-a-strong-password>"
+
+# --- Tags ---
+# tags = {
+#   team = "platform"
+#   cost_center = "engineering"
+# }

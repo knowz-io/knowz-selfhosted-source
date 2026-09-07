@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.39.26.7824",
+      "templateHash": "16106930483933421895"
+    }
+  },
+  "parameters": {
+    "message": {
+      "type": "string",
+      "metadata": {
+        "description": "Diagnostic message describing the violated precondition. Surfaced in deployment errors."
+      }
+    }
+  },
+  "resources": [],
+  "outputs": {
+    "assertionFailed": {
+      "type": "string",
+      "value": "[format('{0} :: {1}', parameters('message'), string(json('[]')[0]))]"
+    }
+  }
+}

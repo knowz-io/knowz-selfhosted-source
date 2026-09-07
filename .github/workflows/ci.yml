@@ -1,0 +1,76 @@
+name: Self-Hosted CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # --- .NET Build & Test ---
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore NuGet packages
+        run: dotnet restore Knowz.SelfHosted.sln
+
+      - name: Build solution
+        run: dotnet build Knowz.SelfHosted.sln --configuration Release --no-restore
+
+      - name: Run .NET tests
+        run: dotnet test Knowz.SelfHosted.sln --configuration Release --no-build --verbosity normal
+
+      # --- Node.js Build & Test ---
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install web dependencies
+        working-directory: src/knowz-selfhosted-web
+        run: npm ci
+
+      - name: Run web tests
+        working-directory: src/knowz-selfhosted-web
+        run: npm test
+
+      # --- Docker Build (no push) ---
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/Knowz.SelfHosted.API/Dockerfile
+          push: false
+          tags: knowz-selfhosted-api:ci
+
+      - name: Build Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: src/knowz-selfhosted-web
+          file: src/knowz-selfhosted-web/Dockerfile
+          push: false
+          tags: knowz-selfhosted-web:ci
+
+      - name: Build MCP image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/Knowz.MCP/Dockerfile
+          push: false
+          tags: knowz-selfhosted-mcp:ci

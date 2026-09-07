@@ -1,0 +1,145 @@
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+bld/
+artifacts/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# Visual Studio Code
+.vscode/
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+
+# .NET build artifacts
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.log
+*.tlog
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Secrets / local config
+appsettings.Local.json
+appsettings.local.json
+appsettings.*.local.json
+secrets.json
+*.secrets.json
+.env
+!.env.example
+local.settings.json
+
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test results
+TestResults/
+[Tt]est[Rr]esult*/
+coverage/
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+
+# Temp / editor files
+*.swp
+*.swo
+*.swn
+.*.swp
+.*.swo
+.*.swn
+*.bak
+*.backup
+*~
+
+# Publish / deploy
+publish/
+PublishScripts/
+*.pubxml
+*.publishproj
+*.Publish.xml
+*.azurePubxml
+*.zip
+*.tar.gz
+
+# Docker
+.docker/
+
+# Bicep build artifacts
+*.json.bak
+
+# Claude Code
+**/.claude/settings.local.json
+
+# Local NuGet packages (required for selfhosted Docker builds)
+!local-packages/
+!local-packages/*.nupkg
+!local-packages/*.snupkg

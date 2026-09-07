@@ -1,0 +1,24 @@
+{
+  "format": "knowz-encrypted-message-v2",
+  "version": 2,
+  "alg": {
+    "kdf": "hkdf-sha256",
+    "keyAgreement": "x25519",
+    "dekWrap": "aes-256-gcm",
+    "content": "aes-256-gcm"
+  },
+  "binding": {
+    "vaultId": "10000000-2000-3000-4000-500000000006",
+    "keyType": "x25519-vault-public"
+  },
+  "contentAadBound": true,
+  "envelope": {
+    "ephemeralPublicKey": "JDUoA7DQ7e0kTF9N6TEvViKxDs5CiB29BZazpAItHCo=",
+    "encryptedDek": "oVGPPxZx4Q5svU9Wzd3tHbaVNzjhCUenk3b6wPpupzHM1Waxhf3GeJq24hf32NAP",
+    "dekNonce": "/B8beaYwvFJtmr9L",
+    "contentNonce": "wO6uFNCxE6g0P8Nv",
+    "ciphertext": "cIsmrBJ90HPoGlIxChryGpn\u002BALHAWo9L\u002BpBUvZSqQUFgzEHXHTmwxI6m91H6234J8WzsuHJrgeZY4nQCAAf\u002BanhUSc9nAFYW/L8ExCyM0NoDAhQwVwOsaAsbtKVyNrFmQSTr6cUvWI\u002B/v0/X1v9vUYSCa920sf6NMeQ7dkFpLyLFGV5kV2DwWtBX929bHqiKnPiWDAka7nTzKpo="
+  },
+  "fingerprint": "16786d4e5ef744112f1ac45c977dffe54d67cc9de645ef8cfed3dea798f0c04e",
+  "createdAt": "2026-07-19T00:00:00.000Z"
+}

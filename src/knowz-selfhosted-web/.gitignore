@@ -1,0 +1,19 @@
+# Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+*.d.ts
+
+# Build artifacts
+*.log
+
+# Local environment overrides (contain secrets)
+.env.cloud
+.env.local
+.env.*.local
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+.playwright/

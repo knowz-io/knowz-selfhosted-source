@@ -1,0 +1,15 @@
+**/node_modules
+**/bin
+**/obj
+**/.git
+**/dist
+**/.vs
+*.md
+!README.md
+docs/
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+**/*.tfvars
+**/*.tfvars.json

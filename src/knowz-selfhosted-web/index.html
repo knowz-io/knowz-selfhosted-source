@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; media-src 'self' blob:; object-src 'self' blob:; font-src 'self' data: https:; connect-src 'self' https:; base-uri 'self'; form-action 'self'">
+    <link rel="icon" type="image/svg+xml" href="/knowz-icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knowz Self-Hosted</title>
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      First-paint ground. The bundle's CSS is not available when a fresh document paints, so
+      without this a dark-theme user flashes white on every reload and login hop. Colours mirror
+      the --background tokens in src/index.css (:root / .dark); src/theme-prepaint.test.ts guards
+      the pair. /theme-prepaint.js applies the stored theme class before first paint (external
+      file: the CSP above is script-src 'self').
+    -->
+    <style id="theme-prepaint">
+      html { background-color: hsl(210 24% 98%); color-scheme: light; }
+      html.dark { background-color: hsl(222 32% 7%); color-scheme: dark; }
+    </style>
+    <script src="/theme-prepaint.js"></script>
+  </head>
+  <body class="bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
