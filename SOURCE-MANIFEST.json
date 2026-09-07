@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "treeSha256": "bc2c554b0a72ee7231edbbb348e3750872561fd77e7ba9ba75cc50277ca27319",
+  "treeSha256": "b8ca172195c15a475713951e99536bb159f411746b7d814e6beae2cd3f3211e9",
   "files": [
     {
       "path": ".dockerignore",
@@ -22,8 +22,8 @@
     },
     {
       "path": ".github/workflows/release.yml",
-      "bytes": 5908,
-      "sha256": "3cb1593fd4efd78604d1baea39e4011e36357d1e31006ab090747fbbbcc7e0f2",
+      "bytes": 6043,
+      "sha256": "8596d0ce85ace875e6a3fe89a7060f12aaefe6efd4edaac6e01fa72af6d2d1a5",
       "mode": 420
     },
     {
@@ -3706,8 +3706,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/main.tsx",
-      "bytes": 601,
-      "sha256": "b0283e2c01dc0d55b6d4b3759eea55c8b10f13dfff0bf182c735514156c747db",
+      "bytes": 674,
+      "sha256": "60c41f625373dd9376b2af48c253be6717e3138efdcc9d56311efd2be40c0a5d",
       "mode": 420
     },
     {
@@ -3874,8 +3874,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/pages/admin/AdminSettingsPage.tsx",
-      "bytes": 20271,
-      "sha256": "54286386f9173357549285ea0e1c62908dd1efcd57ba7efb0a5609654b770887",
+      "bytes": 20220,
+      "sha256": "e7f62de654e501008f3a813b9b9d1edc6fc10652814fa36f3fd342ebfd390e2b",
       "mode": 420
     },
     {
@@ -3912,6 +3912,12 @@
       "path": "src/knowz-selfhosted-web/src/pages/admin/UsersPage.tsx",
       "bytes": 61845,
       "sha256": "6772794f28f0c480fe2d81012aef830101e795efc756c690c8541df71d7d6c4b",
+      "mode": 420
+    },
+    {
+      "path": "src/knowz-selfhosted-web/src/pages/admin/useConfigurationNavigation.tsx",
+      "bytes": 4847,
+      "sha256": "284e50e0fb29d3d5fe324eb25f4b201cc7c25c8888817506e37bc7fd72cd1311",
       "mode": 420
     },
     {
@@ -3954,6 +3960,12 @@
       "path": "src/knowz-selfhosted-web/src/test/CondensedResponsive.test.ts",
       "bytes": 1439,
       "sha256": "822ce086f3a52966e9950f3448822889ba612e505fddb7c2ab89bb0ac5fe0c7c",
+      "mode": 420
+    },
+    {
+      "path": "src/knowz-selfhosted-web/src/test/ConfigurationNavigation.test.tsx",
+      "bytes": 10011,
+      "sha256": "16eecbacdfcbf7e64e484fe259a8ff83afeffb8c84edf592cc0307abe17ab553",
       "mode": 420
     },
     {
@@ -4240,8 +4252,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/test/test-utils.tsx",
-      "bytes": 1314,
-      "sha256": "56b8854d29d4bf43977acad1076f515891943c0b60fc67cb6d764567d0f63aa9",
+      "bytes": 1594,
+      "sha256": "e0551cfcc50dfe5f64466f096db5c90b428bad4dab85c1a14fe00ea3fa42470f",
       "mode": 420
     },
     {
@@ -4272,6 +4284,12 @@
       "path": "src/knowz-selfhosted-web/tailwind.config.js",
       "bytes": 2958,
       "sha256": "3bbc4ab2b7104405fd0146d2eda632ae133669c7c228c00b34e15a35fba41aa3",
+      "mode": 420
+    },
+    {
+      "path": "src/knowz-selfhosted-web/tests/configuration-navigation.spec.ts",
+      "bytes": 5410,
+      "sha256": "0463a4c1ee7dfdb6cf36be4d19306d266afab5add2275d095d72f99d9edfdec3",
       "mode": 420
     },
     {
@@ -4557,7 +4575,7 @@
       "mode": 420
     }
   ],
-  "sourceRevision": "fe8b8eefd3ed254da468eabd069e86a93c6afc07",
+  "sourceRevision": "40272c6a886cc02da3f84297318f224dfa9c5fc8",
   "workingTreeDirty": false,
   "license": "Apache-2.0",
   "policySha256": "785ebc7a04a6684ec4b4b20e83b49688997733fc0a24042732864ecea85b6a1f"

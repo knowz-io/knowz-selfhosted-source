@@ -22,6 +22,7 @@ import type {
   ServiceHealthResult,
 } from '../../lib/types'
 import { parseAsUtc, formatDate } from '../../lib/format-utils'
+import { useConfigurationNavigation, type RegisterConfigurationDraft } from './useConfigurationNavigation'
 
 const TAB_ORDER = [
   'ConnectionStrings',
@@ -73,6 +74,7 @@ export function canRevealSecrets(category: string): boolean {
 export default function AdminSettingsPage() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState(TAB_ORDER[0])
+  const { registerDraft, navigationDialog } = useConfigurationNavigation()
 
   const categoriesQuery = useQuery({
     queryKey: ['admin', 'config'],
@@ -226,12 +228,14 @@ export default function AdminSettingsPage() {
         </nav>
       </div>
 
+      {navigationDialog}
       {/* Keep drafts mounted by category when switching tabs. */}
       {sortedCategories.map((category) => (
         <div key={category.category} hidden={category.category !== selectedTab}>
           <CategorySection
             category={category}
             queryClient={queryClient}
+            registerDraft={registerDraft}
           />
         </div>
       ))}
@@ -242,9 +246,11 @@ export default function AdminSettingsPage() {
 function CategorySection({
   category,
   queryClient,
+  registerDraft,
 }: {
   category: ConfigCategoryDto
   queryClient: ReturnType<typeof useQueryClient>
+  registerDraft: RegisterConfigurationDraft
 }) {
   const [formValues, setFormValues] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {}
@@ -267,24 +273,6 @@ function CategorySection({
     }
   }, [category, dirtyFields.size])
 
-  useEffect(() => {
-    if (dirtyFields.size === 0) return
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
-    const guardNavigation = (event: MouseEvent) => {
-      const anchor = (event.target as Element)?.closest('a[href]')
-      if (anchor && !window.confirm('Discard unsaved configuration changes?')) {
-        event.preventDefault()
-        event.stopPropagation()
-      }
-    }
-    window.addEventListener('beforeunload', warn)
-    document.addEventListener('click', guardNavigation, true)
-    return () => {
-      window.removeEventListener('beforeunload', warn)
-      document.removeEventListener('click', guardNavigation, true)
-    }
-  }, [dirtyFields.size])
-
   const saveMutation = useMutation({
     mutationFn: async () => {
       const entries: ConfigEntryUpdateDto[] = category.entries
@@ -299,6 +287,13 @@ function CategorySection({
       setTimeout(() => setSaveSuccess(false), 3000)
     },
   })
+
+  const save = saveMutation.mutateAsync
+  const saving = saveMutation.isPending
+  useEffect(() => {
+    registerDraft(category.category, dirtyFields.size > 0 ? { save, saving } : null)
+  }, [category.category, dirtyFields.size, registerDraft, save, saving])
+  useEffect(() => () => registerDraft(category.category, null), [category.category, registerDraft])
 
   const healthMutation = useMutation({
     mutationFn: () => api.testConfigHealth(category.category),

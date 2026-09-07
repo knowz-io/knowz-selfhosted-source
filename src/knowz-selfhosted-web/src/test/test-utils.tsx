@@ -1,8 +1,13 @@
 import { render, type RenderOptions } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router-dom'
-import type { ReactElement, ReactNode } from 'react'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { createContext, useContext, type ReactElement, type ReactNode } from 'react'
 import { ViewModeProvider } from '../contexts/ViewModeContext'
+
+const TestContent = createContext<ReactNode>(null)
+function TestRoute() {
+  return <ViewModeProvider>{useContext(TestContent)}</ViewModeProvider>
+}
 
 function createTestQueryClient() {
   return new QueryClient({
@@ -24,14 +29,13 @@ interface WrapperOptions {
 
 function createWrapper(options: WrapperOptions = {}) {
   const queryClient = createTestQueryClient()
+  const router = createMemoryRouter([{ path: '*', element: <TestRoute /> }], { initialEntries: options.initialEntries ?? ['/'] })
   return function TestWrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={options.initialEntries ?? ['/']}>
-          <ViewModeProvider>
-            {children}
-          </ViewModeProvider>
-        </MemoryRouter>
+        <TestContent.Provider value={children}>
+          <RouterProvider router={router} />
+        </TestContent.Provider>
       </QueryClientProvider>
     )
   }

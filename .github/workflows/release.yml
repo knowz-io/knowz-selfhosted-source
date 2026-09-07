@@ -48,6 +48,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/knowz-io/knowz-selfhosted-api
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
 
@@ -67,6 +69,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/knowz-io/knowz-selfhosted-web
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
 
@@ -86,6 +90,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/knowz-io/knowz-selfhosted-mcp
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
 
