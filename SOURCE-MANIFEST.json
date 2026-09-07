@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "treeSha256": "b8213f73beac55dc1b8d4619886e2efcc9cd29f17cc03c02ac81c1812c5d252f",
+  "treeSha256": "1e03738a186cb17b084f4a7567934bac5836d16d186b039a179dbe802b44aeaa",
   "files": [
     {
       "path": ".dockerignore",
@@ -3352,8 +3352,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/.gitignore",
-      "bytes": 233,
-      "sha256": "0068e7cfa8707353c79e26beae9749029163c7f1778cad209f509bbe3b818cf6",
+      "bytes": 252,
+      "sha256": "7133f587a4e7eb616718213bd99fc6a9ef5dfb2bd7c7bf25c43b6c8650b676fb",
       "mode": 420
     },
     {
@@ -4557,7 +4557,7 @@
       "mode": 420
     }
   ],
-  "sourceRevision": "b31b348e85956ec867ff297842742eb1d211b0c9",
+  "sourceRevision": "90a196d6e9445ad320668bc3eb8b43b14792c9de",
   "workingTreeDirty": false,
   "license": "Apache-2.0",
   "policySha256": "785ebc7a04a6684ec4b4b20e83b49688997733fc0a24042732864ecea85b6a1f"

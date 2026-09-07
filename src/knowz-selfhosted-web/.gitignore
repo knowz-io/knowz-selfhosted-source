@@ -3,6 +3,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 *.d.ts
+!src/vite-env.d.ts
 
 # Build artifacts
 *.log
