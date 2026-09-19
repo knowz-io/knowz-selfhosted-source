@@ -798,6 +798,32 @@ export interface VaultSyncStatusDto {
   syncEnabled: boolean
 }
 
+/**
+ * UI_DestinationsLiveConnect S4 — direction of a manual Destinations run.
+ * Mirrors `Knowz.SelfHosted.Application.DTOs.SyncDirection`.
+ */
+export type SyncDirection = 'Full' | 'PullOnly' | 'PushOnly'
+
+/**
+ * UI_DestinationsLiveConnect S4 — result of `POST /api/v1/sync/run/{localVaultId}`.
+ * Mirrors `Knowz.SelfHosted.Application.DTOs.VaultSyncResult` (JSON is camelCase).
+ * `partial` is true when the run stopped at the 100-item-per-run cap; the cursor is
+ * kept, so re-running continues from where it left off.
+ */
+export interface VaultSyncResult {
+  success: boolean
+  direction: SyncDirection
+  pullAccepted: number
+  pullSkipped: number
+  pushAccepted: number
+  pushSkipped: number
+  tombstonesApplied: number
+  details: string[]
+  error: string | null
+  duration: string
+  partial: boolean
+}
+
 export type PlatformSyncOperation =
   | 'Connect'
   | 'Disconnect'

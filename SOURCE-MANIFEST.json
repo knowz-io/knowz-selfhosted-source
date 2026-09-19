@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "treeSha256": "82ae98bcc1afcb4241e29c4148239252b0a286f895d848703d1d9bb3e209b41e",
+  "treeSha256": "8aa8c618a84f7677f5730cf9a90b9002c44e3c22f3bcdef7570f12ba71f8899e",
   "files": [
     {
       "path": ".dockerignore",
@@ -52,8 +52,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 26816,
-      "sha256": "34b261ffe98c886dfbcfb1cfe124dfb0238e7f61b7ebb049df7e385984fd4143",
+      "bytes": 27754,
+      "sha256": "2dcf32f426cb947d69711b030f7f16a72eb9f7c8c362ee86571686db7cfef104",
       "mode": 420
     },
     {
@@ -327,9 +327,15 @@
       "mode": 420
     },
     {
+      "path": "src/Knowz.Core/Configuration/AnydocOptions.cs",
+      "bytes": 2008,
+      "sha256": "3c1c0b7f8cc07e01f81fe36d58b61e301a7381b74bfa38d3647b7075e321e08c",
+      "mode": 420
+    },
+    {
       "path": "src/Knowz.Core/Configuration/SelfHostedOptionalList.cs",
-      "bytes": 1485,
-      "sha256": "89fe2c66636a19b4bcc2474496e96d6d38995a7283c43ca09443a0e575585e26",
+      "bytes": 1590,
+      "sha256": "750559e32434fa203be300b025466da1fd1c6d93b8a3dacfe5e97166972f4aea",
       "mode": 420
     },
     {
@@ -694,14 +700,14 @@
     },
     {
       "path": "src/Knowz.Core/Portability/PortableZipReader.cs",
-      "bytes": 8393,
-      "sha256": "84136f8212c5978b90ae7ce7bb46c6c27566a718810f9d950dfe1f5203540d59",
+      "bytes": 13634,
+      "sha256": "51ef3a071b163a8ba0e4bbdedfa23cdb1d9f9572f6d2b107e9a37bf954809603",
       "mode": 420
     },
     {
       "path": "src/Knowz.Core/Portability/PortableZipWriter.cs",
-      "bytes": 4541,
-      "sha256": "055287931cb16be0dc157e56bac2050c36c2765791c2a7e9db6870211d9c371c",
+      "bytes": 7233,
+      "sha256": "18b4915871fc23455c65952aacbf32669f0bf24c1505b4be5f741aef80880d32",
       "mode": 420
     },
     {
@@ -765,6 +771,12 @@
       "mode": 420
     },
     {
+      "path": "src/Knowz.MCP.Tests/Endpoints/OpenAiAppsChallengeEndpointsTests.cs",
+      "bytes": 2610,
+      "sha256": "8b8bcf292d5188b6072dd721beb2aa1629e46c0593c1391422221cecd3acdff9",
+      "mode": 420
+    },
+    {
       "path": "src/Knowz.MCP.Tests/Knowz.MCP.Tests.csproj",
       "bytes": 1844,
       "sha256": "7d300801a5699cab5d7926bc07edca4fed458932cd132eba063301579e1f96a2",
@@ -792,6 +804,12 @@
       "path": "src/Knowz.MCP.Tests/Services/OAuthTokenExpiryTests.cs",
       "bytes": 3629,
       "sha256": "688a15f8beee1c7bdf6a012fbd81580eecdd0f7b54c3789177867d72711276dc",
+      "mode": 420
+    },
+    {
+      "path": "src/Knowz.MCP.Tests/Services/ProxyToolBackendPlanGateTests.cs",
+      "bytes": 3318,
+      "sha256": "ede21df8ec39d0689b4f078903dc9b8692b429177937653fb2b19dfe33494552",
       "mode": 420
     },
     {
@@ -879,6 +897,12 @@
       "mode": 420
     },
     {
+      "path": "src/Knowz.MCP/Endpoints/OpenAiAppsChallengeEndpoints.cs",
+      "bytes": 1543,
+      "sha256": "2e592ba3d0f8969146d7a0fd3f7ebe13ce7f3b567bf5d6d3ecb8c7a62527337e",
+      "mode": 420
+    },
+    {
       "path": "src/Knowz.MCP/Helpers/ApiKeyValidator.cs",
       "bytes": 957,
       "sha256": "78238e18625ae90ca8b0a3c8e8f85c1b8d9f0165b7857948e72441d2dfd66496",
@@ -910,8 +934,8 @@
     },
     {
       "path": "src/Knowz.MCP/Program.cs",
-      "bytes": 9553,
-      "sha256": "0e55a38cf021a2494ed3bb7c17323d50d00285ba318b3fac54b8b1c32501a0f7",
+      "bytes": 9593,
+      "sha256": "68fd3a0f1b57cb73ed244a20756f2244fefc6ccd457e1ab6104215db230e2f21",
       "mode": 420
     },
     {
@@ -958,8 +982,8 @@
     },
     {
       "path": "src/Knowz.MCP/Services/Proxy/ProxyToolBackend.cs",
-      "bytes": 3836,
-      "sha256": "52996907900035af0b319420f24f6357331e276e4f635ad17ea06423186bcc88",
+      "bytes": 6029,
+      "sha256": "562a50eb8369ada38622885b2caeba6c7ec38dd113039d944488df90338d0524",
       "mode": 420
     },
     {
@@ -1006,8 +1030,8 @@
     },
     {
       "path": "src/Knowz.MCP/Tools/KnowzProxyTools.cs",
-      "bytes": 67406,
-      "sha256": "3ef00aebac8493c4b737428a82454a580f4882a444e453ab7b49de68a436a7d5",
+      "bytes": 70481,
+      "sha256": "36546f14bdfab8e3551c5605bd0158b31969b031aa8c90fa29a97fe519294c7f",
       "mode": 420
     },
     {
@@ -1030,8 +1054,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.API/Dockerfile",
-      "bytes": 2292,
-      "sha256": "3a3804042ca14c6ce34a7bcfdca3adc2ab6f8e8d108a4703085db2302a8069fe",
+      "bytes": 4070,
+      "sha256": "71dae5abfdb72fdc85355c7f90d5a155ebede8bc8ed9b481b8e750af45125fca",
       "mode": 420
     },
     {
@@ -1144,8 +1168,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.API/Endpoints/PortabilityEndpoints.cs",
-      "bytes": 8423,
-      "sha256": "7afc511788fec7e8d1380503c2b3ac787f88f1a2294eb795a25641229dcdfe7a",
+      "bytes": 7603,
+      "sha256": "2f611f2202dc964391efa337425713e05fb14e103df5aba296bd45bfccad9309",
       "mode": 420
     },
     {
@@ -1384,8 +1408,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Application/DTOs/PortableImportDtos.cs",
-      "bytes": 2872,
-      "sha256": "1866b02a2c668a76e3005f7699a4bc15f4b5f42935d57851aee9b659b25edda4",
+      "bytes": 3162,
+      "sha256": "5955917f67929507bdf1e82779d500a2b2cf3fae7e4e701f51ec80a0caa0bc96",
       "mode": 420
     },
     {
@@ -1426,8 +1450,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Application/Extensions/ApplicationServiceExtensions.cs",
-      "bytes": 6981,
-      "sha256": "dbf8c19b9604b01daff7c2789927b8cea0be457897fe9444e8bba599955a5888",
+      "bytes": 8989,
+      "sha256": "d1088e5237e41509b85b5837a191b38e0bbe9f3a76a8385a8dce94e23fee0aca",
       "mode": 420
     },
     {
@@ -1480,8 +1504,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Application/Interfaces/IPortableImportService.cs",
-      "bytes": 705,
-      "sha256": "4046216ed2552c79e54cd018f4f363bc0cdc4f9c60d3e031c4eb43643363180b",
+      "bytes": 905,
+      "sha256": "1815b40e9c82a9a3343619da0b44d138b2d74eecd4e2e0c70d8297d442e4a3c8",
       "mode": 420
     },
     {
@@ -1624,8 +1648,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Application/Services/ConfigurationProbe.cs",
-      "bytes": 6416,
-      "sha256": "485224803b35fb04541fc8f0a598c54fefc2e753d9ad03ac474456f55f0f0edd",
+      "bytes": 7395,
+      "sha256": "913422adfd4feab5565aa758e1552f4c0be99e7aa7d95d8b1e9230ada05d5368",
       "mode": 420
     },
     {
@@ -1762,14 +1786,14 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Application/Services/PortableExportService.cs",
-      "bytes": 15445,
-      "sha256": "67e112ed5f522026b19942789410d315cfc07d275bad4372e1fbb6b38839ecc7",
+      "bytes": 15979,
+      "sha256": "7bb8124e8900b7e631f244e1b08229819642e72c84cc708bcf386686805b0f46",
       "mode": 420
     },
     {
       "path": "src/Knowz.SelfHosted.Application/Services/PortableImportService.cs",
-      "bytes": 54404,
-      "sha256": "ac7166fbb5f3f20181b8ce92662c3e9a3b09cff30b648e52e787c6947e3b1f99",
+      "bytes": 66137,
+      "sha256": "dd893bb693d567f384f3269edfaa653519964f1baff8f3a09fc49cbdf90cdc43",
       "mode": 420
     },
     {
@@ -2104,8 +2128,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Infrastructure/Interfaces/IFileContentExtractor.cs",
-      "bytes": 579,
-      "sha256": "41a133e1f73aa64d123eff10d8a2f58a9568d9421c4c08bc79bda85cd6873762",
+      "bytes": 1338,
+      "sha256": "11868f397cb719bccfed9fce111821f3cfa751b601558a487c182c0a112aefa4",
       "mode": 420
     },
     {
@@ -2142,6 +2166,12 @@
       "path": "src/Knowz.SelfHosted.Infrastructure/Services/AiRuntimePolicy.cs",
       "bytes": 1655,
       "sha256": "8e9656fb20ca57412ca579ca736705f9b39af6753ead225ff3bd7bf0b0a8df63",
+      "mode": 420
+    },
+    {
+      "path": "src/Knowz.SelfHosted.Infrastructure/Services/AnydocContentExtractor.cs",
+      "bytes": 15905,
+      "sha256": "63fd8a153c9d6bab1e7849a7166c5b2a71f94fb5ab0b3a6ef68805317f6dffc9",
       "mode": 420
     },
     {
@@ -2188,8 +2218,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Infrastructure/Services/CompositeContentExtractor.cs",
-      "bytes": 1199,
-      "sha256": "2fe6cf72aef57a05119385eb86f3c84f595fa57491e0637f7ec31b0ea06c1b4b",
+      "bytes": 2574,
+      "sha256": "eb7a55cad62e6e34d9ae9119331e1dd8a224a6ef118eb0d7b15df097814657c2",
       "mode": 420
     },
     {
@@ -2248,8 +2278,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Infrastructure/Services/DocumentIntelligenceContentExtractor.cs",
-      "bytes": 4869,
-      "sha256": "a37c4f26019dcb30a4bfc5f4a5d086f1e895b6023584bf06dbbe9f8e70c8fbfa",
+      "bytes": 5370,
+      "sha256": "5bed5134f32e5543903bd8c5630e8cb648236b6a2096b60ba1bd1e4f919aa35a",
       "mode": 420
     },
     {
@@ -2326,8 +2356,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Infrastructure/Services/LocalFileStorageProvider.cs",
-      "bytes": 6658,
-      "sha256": "2bde1f00518f58b69b951d4954b724ba3f4b423211499bdd62e06580d1aca665",
+      "bytes": 7496,
+      "sha256": "6c16f7d5e653b9a4daf9505dfaa26a579c982765abd68fd446cbfc1f0ea2ce19",
       "mode": 420
     },
     {
@@ -2482,8 +2512,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Infrastructure/Services/TextFileContentExtractor.cs",
-      "bytes": 2832,
-      "sha256": "1d2e8f831898be471023f97861074c325adcebb784c026d57c50d53ed8732bfa",
+      "bytes": 3041,
+      "sha256": "f5225d8f06e267a4c6d65ce8c0f707e75a8449a326766d1eeceab3e42b7ffcd8",
       "mode": 420
     },
     {
@@ -2631,6 +2661,30 @@
       "mode": 420
     },
     {
+      "path": "src/Knowz.SelfHosted.Tests/AnydocContentExtractorTests.cs",
+      "bytes": 14479,
+      "sha256": "33f128350c57721a76aa7fbc5b608ae56796832bf246a029fa31e960fdd262f0",
+      "mode": 420
+    },
+    {
+      "path": "src/Knowz.SelfHosted.Tests/AnydocFallbackTests.cs",
+      "bytes": 9265,
+      "sha256": "0c0c5331d5efde6807e54538d97d783169f2a756d8beae15ef3cf60b4399bbd9",
+      "mode": 420
+    },
+    {
+      "path": "src/Knowz.SelfHosted.Tests/AnydocNativeConversionTests.cs",
+      "bytes": 2532,
+      "sha256": "0b7631ee801fcae4fb363f4d1ad861b3906ead05c3bd42bafb2e8b6b4e04d4fe",
+      "mode": 420
+    },
+    {
+      "path": "src/Knowz.SelfHosted.Tests/AnydocWiringTests.cs",
+      "bytes": 7186,
+      "sha256": "c27d187b1fbc80c2fe185e55f730c0bf5e32105d6e5f5953ecb7ae1474e018fd",
+      "mode": 420
+    },
+    {
       "path": "src/Knowz.SelfHosted.Tests/AttachmentAIConfigurationTests.cs",
       "bytes": 1462,
       "sha256": "9f7fd9db8c7b51fbfb9d250e5623a5a96c4f02cd6100dcfe9ff446c6356b1865",
@@ -2710,8 +2764,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Tests/CompositeContentExtractorTests.cs",
-      "bytes": 9189,
-      "sha256": "2509d17230899186b5d828dbabc83d8d3da1c9260a69e8cc74b6150a3488d666",
+      "bytes": 17185,
+      "sha256": "eb9526d1777a607429aca6f3828d24a79170fe9eb2c05e8324edfa7c1d9655f2",
       "mode": 420
     },
     {
@@ -2992,8 +3046,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Tests/LocalFileStorageProviderTests.cs",
-      "bytes": 11341,
-      "sha256": "6a098d8530b8501c7f184c0e2e13b6a00489e7678f5ae301ef9ca2ac18c45f2e",
+      "bytes": 13181,
+      "sha256": "6f54a949739fd12efdec394e36c7fe1236a93628ffdf56325d209a801240a7ea",
       "mode": 420
     },
     {
@@ -3124,8 +3178,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Tests/PortabilityV2Tests.cs",
-      "bytes": 36922,
-      "sha256": "94e9e2a98236698bd18bc4668feb3699cd00c1988c55fa9c5af073053fd70574",
+      "bytes": 37109,
+      "sha256": "97b7cd4396dc953405f8fda19b944673eecb536d1039e99d1f9f47a76bbc1769",
       "mode": 420
     },
     {
@@ -3141,9 +3195,21 @@
       "mode": 420
     },
     {
+      "path": "src/Knowz.SelfHosted.Tests/PortableImportRoundTripTests.cs",
+      "bytes": 23437,
+      "sha256": "7a7b5291678bf60dd26ce09ae0f1fbc22a16ba11048155d241c0290a673dfda1",
+      "mode": 420
+    },
+    {
       "path": "src/Knowz.SelfHosted.Tests/PortableImportServiceTests.cs",
       "bytes": 29741,
       "sha256": "16cd2c57b17dd90814337c7c49113fbce264bf7fece814db0b50aebb0b1e7ca1",
+      "mode": 420
+    },
+    {
+      "path": "src/Knowz.SelfHosted.Tests/PortableZipFidelityTests.cs",
+      "bytes": 7031,
+      "sha256": "e0d459b76b07b8ac2739af826306ea970e14187ce310bb7d6f64eee5e606dbc5",
       "mode": 420
     },
     {
@@ -3256,8 +3322,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Tests/StartupValidationTests.cs",
-      "bytes": 4034,
-      "sha256": "7e7d8d29f836ca577b1073a2d3c77de2c8621a60986486bf560ce079090207b9",
+      "bytes": 4175,
+      "sha256": "1c136c19cc97f4e4952cce9bbece08b14a57006d72df53aa405d57e7579c29d3",
       "mode": 420
     },
     {
@@ -3292,8 +3358,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Tests/TextFileContentExtractorTests.cs",
-      "bytes": 7381,
-      "sha256": "3a0d5399e99963952a8ed921d18912d58ea5a8b6667b4dcf27a3373982f80471",
+      "bytes": 7514,
+      "sha256": "014d1ff4f19acd4931e83582e29c96437a298c52edad040d9dc39d4d1fc5d101",
       "mode": 420
     },
     {
@@ -3412,8 +3478,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/App.tsx",
-      "bytes": 6231,
-      "sha256": "1fff11c5e3a7dac3879c126e77d800777760530240b3496fe2282ddb98383bce",
+      "bytes": 6322,
+      "sha256": "7777e3a555c545a7bf6b0e68023831114a244c33dcffa2307fa21cb8ed615a5d",
       "mode": 420
     },
     {
@@ -3520,14 +3586,14 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/components/nav-config.ts",
-      "bytes": 2518,
-      "sha256": "95a14773fd28cd8faba1db1f8619ac7c75c5f829e7bc8e5320062ec6b84dadfd",
+      "bytes": 2508,
+      "sha256": "00905d069b7e8328cb54de8ad8cce8463ac054a60898c6305161ab6a47dd6fec",
       "mode": 420
     },
     {
       "path": "src/knowz-selfhosted-web/src/components/page-meta-config.ts",
-      "bytes": 3947,
-      "sha256": "b62dc6123b78eac4d6e4f2545c7e50bcf9cdd5d4ac41961b413c3700c1de15f1",
+      "bytes": 4007,
+      "sha256": "d8a1603c785f2ec8055273a74419491c359d9663addfe330fc01d9306a568504",
       "mode": 420
     },
     {
@@ -3538,20 +3604,20 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/components/platform-sync/ConnectionCard.tsx",
-      "bytes": 19038,
-      "sha256": "81d03d4f743e53b143ae87b91ff3d58fecdbbc5129fc673658228e8d3f3f0f50",
+      "bytes": 20314,
+      "sha256": "96dfa6eecfe24218ca236e758fe5416fcb2039f5b1092019ff9afc9557959799",
       "mode": 420
     },
     {
       "path": "src/knowz-selfhosted-web/src/components/platform-sync/SyncHistoryTable.tsx",
-      "bytes": 9274,
-      "sha256": "ca0acf0c68449197e8216cebddd78c6722d2731a4fb9be1f00d6b8f533ac3f54",
+      "bytes": 9524,
+      "sha256": "c6c7af83390282677b92431710b6a790593ddfacc8070271228c02b90f2e3a66",
       "mode": 420
     },
     {
       "path": "src/knowz-selfhosted-web/src/components/platform-sync/VaultLinksTable.tsx",
-      "bytes": 13067,
-      "sha256": "dad31629eaea2f3bca68cf4bb6f598d5eec833d7b6dec5edf1d38e6e508a8092",
+      "bytes": 19576,
+      "sha256": "7d5fc8042f3425e73bccde43098430ecdc6fc822766d20cd303c7b2bb806077d",
       "mode": 420
     },
     {
@@ -3604,8 +3670,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/lib/api-client.ts",
-      "bytes": 32499,
-      "sha256": "bd91d4548f2c02bef84081aafb2f64bf809581e75378b6a37c70ac829c936f7f",
+      "bytes": 32524,
+      "sha256": "afa4fb963f9b88499c80763e1236b7b171c57fe05c30e260a5114e74c98b245d",
       "mode": 420
     },
     {
@@ -3670,14 +3736,14 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/lib/toUserError.ts",
-      "bytes": 2688,
-      "sha256": "1d7aa3a593c6eef792d77b2eaaabad9cb37c3e583916b347b42709fa958ad5d1",
+      "bytes": 2695,
+      "sha256": "e38ad828a59a4e7929e30508c99d1d227c6ae8a729244817b72c1b576daf7138",
       "mode": 420
     },
     {
       "path": "src/knowz-selfhosted-web/src/lib/types.ts",
-      "bytes": 17615,
-      "sha256": "e3add7fac2f59198a341e7e27de05746bb3eb0d3ff3db9354f92e69f1204deea",
+      "bytes": 18428,
+      "sha256": "50b5eac38872b187ebf084e55dc6e75332d810667cf8b26719a22a43a5a10c14",
       "mode": 420
     },
     {
@@ -3742,8 +3808,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/pages/DataPortabilityPage.tsx",
-      "bytes": 18496,
-      "sha256": "0861f3c25cb0ad18dcf93f92f5250c5d12861259cac1ea3f665c1ad0abf10a6d",
+      "bytes": 18821,
+      "sha256": "d67470d2f0c377a1eae2d038c9ab253ee3925c91e7f6cfafb0e8bcf349a5eaf1",
       "mode": 420
     },
     {
@@ -3778,8 +3844,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/pages/KnowledgeDetailPage.tsx",
-      "bytes": 59872,
-      "sha256": "8920a4ed611bac867b08287444a99930234d8b261e8ed324298e01b4e9059430",
+      "bytes": 59862,
+      "sha256": "f66817b126f9628c81a9b4d410dc17919ba1418c8ed99469ac7598840be06226",
       "mode": 420
     },
     {
@@ -3886,8 +3952,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/pages/admin/PlatformSyncPage.tsx",
-      "bytes": 3192,
-      "sha256": "9f3df20355cccaa3b706ff760cb48f11714d778dfbbea74b2c716c21269f70fe",
+      "bytes": 4089,
+      "sha256": "a68b5af10eedc028d9e87ef4415092fe302e7fd78415a947d370a2d585df846a",
       "mode": 420
     },
     {
@@ -3934,8 +4000,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/test/AppOrganizeRedirects.test.tsx",
-      "bytes": 3507,
-      "sha256": "ad2395b9d8aa267fa8613f37053ad663f1e60e74aa9b31b1c85cc93b0a21a97c",
+      "bytes": 3790,
+      "sha256": "bcbf395b9a5a27ef18b8b3e67d2286eda20c6c661ca0756cdbfa453c4b6a8ad9",
       "mode": 420
     },
     {
@@ -3976,8 +4042,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/test/ConnectionCard.test.tsx",
-      "bytes": 7289,
-      "sha256": "6615abdb452d74ffcbec5c233c6c677a623b17c8093a8bfc3e1fda742a936246",
+      "bytes": 10807,
+      "sha256": "db3e67ebb6ee3e03232f7e8b027bfbc3bc1681745b2fbc9933e859f097209cd9",
       "mode": 420
     },
     {
@@ -4002,6 +4068,12 @@
       "path": "src/knowz-selfhosted-web/src/test/DashboardPage.test.tsx",
       "bytes": 1868,
       "sha256": "8601d34c1b66129e90c804823c645e4bf4a36480d228f6a0d55e497c634af97f",
+      "mode": 420
+    },
+    {
+      "path": "src/knowz-selfhosted-web/src/test/DataPortabilityPage.test.tsx",
+      "bytes": 1291,
+      "sha256": "609caeb90222f59e796fc7444cd1617f2730d796aa9ee78b3f5a1141e2e336d2",
       "mode": 420
     },
     {
@@ -4042,8 +4114,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/test/InstanceCopyHygiene.test.tsx",
-      "bytes": 9678,
-      "sha256": "c51179eabf9d5228141e45f041a8cd87b3c8a26fc84556383071a5059096adc9",
+      "bytes": 9724,
+      "sha256": "22ba8148c0db2cd03ebfec04ea068d2c969c96d444bf57a02b8e25ff9abeb0ad",
       "mode": 420
     },
     {
@@ -4102,8 +4174,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/test/PlatformSyncPage.test.tsx",
-      "bytes": 4621,
-      "sha256": "2c27dedad785d31c8f22eb6035b6b65c29e6e52f6e639193293056aa3763d3d2",
+      "bytes": 5215,
+      "sha256": "856d9ad2f761bb2f5f60a82afc2267a7e0af31228b85baf1febb7f790618dcf8",
       "mode": 420
     },
     {
@@ -4114,8 +4186,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/test/SyncHistoryTable.test.tsx",
-      "bytes": 4543,
-      "sha256": "7c26d11882ed008d792b0053e02c64f2a1794095b66dbb45c1adcf36c1e40d35",
+      "bytes": 5381,
+      "sha256": "015eb51ceb90d5081078e72c285fd447f8779904775628012710ba26d9f5c897",
       "mode": 420
     },
     {
@@ -4132,8 +4204,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/test/VaultLinksTable.test.tsx",
-      "bytes": 5790,
-      "sha256": "74afa06c72424db39f459e06b1651dc578ee92941461e5d9a5c0d491f6ff0bee",
+      "bytes": 19951,
+      "sha256": "439773b8080e5ccf6e7e1b21af441e7a15f9934cbc50693cba1c2d9d9f283634",
       "mode": 420
     },
     {
@@ -4228,8 +4300,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/src/test/page-meta-config.test.ts",
-      "bytes": 2296,
-      "sha256": "7fd9c61f2d8b23106587b7508e37f9fffce422786eb27290ed2ab3eacf62197a",
+      "bytes": 2356,
+      "sha256": "260f69c657b194cd4014aa17efe1693c61173b4f0cc2f43a5b3e7af310e6b75d",
       "mode": 420
     },
     {
@@ -4575,7 +4647,7 @@
       "mode": 420
     }
   ],
-  "sourceRevision": "0e83637bd09e2dfa48418af2af886f2de99e1fa3",
+  "sourceRevision": "4f4ecc92669b1af925c75090ca655fae0b2f59a3",
   "workingTreeDirty": false,
   "license": "Apache-2.0",
   "policySha256": "785ebc7a04a6684ec4b4b20e83b49688997733fc0a24042732864ecea85b6a1f"

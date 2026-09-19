@@ -1,6 +1,9 @@
 namespace Knowz.SelfHosted.Application.Services;
 
 using System.Diagnostics;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Knowz.Core.Entities;
 using Knowz.Core.Interfaces;
@@ -36,6 +39,8 @@ public class PortableImportService : IPortableImportService
         PortableExportPackage package,
         CancellationToken ct = default)
     {
+        try { PortableZipReader.ValidatePackage(package); }
+        catch (PortableZipSecurityException ex) { return new ImportValidationResult { Errors = new() { ex.Message } }; }
         var result = new ImportValidationResult
         {
             SchemaVersion = package.SchemaVersion,
@@ -52,21 +57,30 @@ public class PortableImportService : IPortableImportService
             return result;
         }
 
-        // Copy counts from metadata
-        result.TotalVaults = package.Metadata.TotalVaults;
-        result.TotalKnowledgeItems = package.Metadata.TotalKnowledgeItems;
-        result.TotalTopics = package.Metadata.TotalTopics;
-        result.TotalTags = package.Metadata.TotalTags;
-        result.TotalPersons = package.Metadata.TotalPersons;
-        result.TotalLocations = package.Metadata.TotalLocations;
-        result.TotalEvents = package.Metadata.TotalEvents;
-        result.TotalInboxItems = package.Metadata.TotalInboxItems;
-        result.TotalComments = package.Metadata.TotalComments;
-        result.TotalFileRecords = package.Metadata.TotalFileRecords;
-        result.TotalArchiveTypes = package.Metadata.TotalArchiveTypes;
+        // Metadata is advisory; previews reflect the data that will actually be imported.
+        result.TotalVaults = package.Data.Vaults.Count;
+        result.TotalKnowledgeItems = package.Data.KnowledgeItems.Count;
+        result.TotalTopics = package.Data.Topics.Count;
+        result.TotalTags = package.Data.Tags.Count;
+        result.TotalPersons = package.Data.Persons.Count;
+        result.TotalLocations = package.Data.Locations.Count;
+        result.TotalEvents = package.Data.Events.Count;
+        result.TotalInboxItems = package.Data.InboxItems.Count;
+        result.TotalComments = package.Data.Comments.Count;
+        result.TotalFileRecords = package.Data.FileRecords.Count;
+        result.TotalArchiveTypes = package.Data.Archives.Count;
 
         // Detect conflicts against existing data
         var preserveIds = IsSameEdition(package.SourceEdition);
+        int CountNamedConflicts(IEnumerable<(Guid Id, string Name)> imported,
+            IEnumerable<(Guid Id, string Name)> existing, string kind)
+        {
+            var candidates = existing.ToList();
+            var ids = candidates.Select(e => e.Id).ToHashSet();
+            var names = candidates.Select(e => e.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return imported.Count(e => ids.Contains(preserveIds ? e.Id :
+                StableImportId(_tenantProvider.TenantId, package, kind, e.Id)) || (!preserveIds && names.Contains(e.Name)));
+        }
 
         if (preserveIds)
         {
@@ -91,24 +105,42 @@ public class PortableImportService : IPortableImportService
         }
         else
         {
-            // Name-based conflict detection for cross-edition
-            var existingVaultNames = await _db.Vaults.Select(v => v.Name).ToListAsync(ct);
-            var existingPersonNames = await _db.Persons.Select(p => p.Name).ToListAsync(ct);
-            var existingLocationNames = await _db.Locations.Select(l => l.Name).ToListAsync(ct);
-            var existingEventNames = await _db.Events.Select(e => e.Name).ToListAsync(ct);
+            // Match import's stable identity first, retaining its cross-edition name fallback.
+            // Names can change in later snapshots without changing the destination identity.
+            var existingVaults = await _db.Vaults.Select(v => new { v.Id, v.Name }).ToListAsync(ct);
+            var existingPersons = await _db.Persons.Select(p => new { p.Id, p.Name }).ToListAsync(ct);
+            var existingLocations = await _db.Locations.Select(l => new { l.Id, l.Name }).ToListAsync(ct);
+            var existingEvents = await _db.Events.Select(e => new { e.Id, e.Name }).ToListAsync(ct);
 
-            var packageVaultNames = package.Data.Vaults.Select(v => v.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var packagePersonNames = package.Data.Persons.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var packageLocationNames = package.Data.Locations.Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var packageEventNames = package.Data.Events.Select(e => e.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            result.ConflictingVaults = CountNamedConflicts(package.Data.Vaults.Select(v => (v.Id, v.Name)),
+                existingVaults.Select(v => (v.Id, v.Name)), "Vault");
+            result.ConflictingPersons = CountNamedConflicts(package.Data.Persons.Select(p => (p.Id, p.Name)),
+                existingPersons.Select(p => (p.Id, p.Name)), "Person");
+            result.ConflictingLocations = CountNamedConflicts(package.Data.Locations.Select(l => (l.Id, l.Name)),
+                existingLocations.Select(l => (l.Id, l.Name)), "Location");
+            result.ConflictingEvents = CountNamedConflicts(package.Data.Events.Select(e => (e.Id, e.Name)),
+                existingEvents.Select(e => (e.Id, e.Name)), "Event");
 
-            result.ConflictingVaults = existingVaultNames.Count(n => packageVaultNames.Contains(n));
-            result.ConflictingPersons = existingPersonNames.Count(n => packagePersonNames.Contains(n));
-            result.ConflictingLocations = existingLocationNames.Count(n => packageLocationNames.Contains(n));
-            result.ConflictingEvents = existingEventNames.Count(n => packageEventNames.Contains(n));
+            // Knowledge has no name-based match; reuse the deterministic source namespace on retries.
+            var knowledgeIds = (await _db.KnowledgeItems.Select(k => k.Id).ToListAsync(ct)).ToHashSet();
+            result.ConflictingKnowledgeItems = package.Data.KnowledgeItems.Count(k =>
+                knowledgeIds.Contains(StableImportId(_tenantProvider.TenantId, package, "Knowledge", k.Id)));
+        }
 
-            // Knowledge conflicts are GUID-only per spec
-            result.ConflictingKnowledgeItems = 0;
+        var topics = await _db.Topics.Select(t => new { t.Id, t.Name }).ToListAsync(ct);
+        var tags = await _db.Tags.Select(t => new { t.Id, t.Name }).ToListAsync(ct);
+        result.ConflictingTopics = CountNamedConflicts(package.Data.Topics.Select(t => (t.Id, t.Name)),
+            topics.Select(t => (t.Id, t.Name)), "Topic");
+        result.ConflictingTags = CountNamedConflicts(package.Data.Tags.Select(t => (t.Id, t.Name)),
+            tags.Select(t => (t.Id, t.Name)), "Tag");
+        {
+            Guid ResolveId(string kind, Guid id) => preserveIds ? id : StableImportId(_tenantProvider.TenantId, package, kind, id);
+            var comments = (await _db.Comments.Select(c => c.Id).ToListAsync(ct)).ToHashSet();
+            var files = (await _db.FileRecords.Select(f => f.Id).ToListAsync(ct)).ToHashSet();
+            var inbox = (await _db.InboxItems.Select(i => i.Id).ToListAsync(ct)).ToHashSet();
+            result.ConflictingComments = package.Data.Comments.Count(c => comments.Contains(ResolveId("KnowledgeComment", c.Id)));
+            result.ConflictingFileRecords = package.Data.FileRecords.Count(f => files.Contains(ResolveId("FileRecord", f.Id)));
+            result.ConflictingInboxItems = package.Data.InboxItems.Count(i => inbox.Contains(ResolveId("InboxItem", i.Id)));
         }
 
         if (result.ConflictingVaults > 0 || result.ConflictingKnowledgeItems > 0)
@@ -118,13 +150,26 @@ public class PortableImportService : IPortableImportService
         return result;
     }
 
-    public async Task<PortableImportResult> ImportAsync(
-        PortableExportPackage package,
-        ImportConflictStrategy strategy = ImportConflictStrategy.Skip,
-        CancellationToken ct = default)
+    public Task<PortableImportResult> ImportAsync(PortableExportPackage package,
+        ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default)
+        => ImportCoreAsync(package, strategy, ct, null);
+
+    public Task<PortableImportResult> ImportZipAsync(ZipArchive archive,
+        ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default)
+        => ImportCoreAsync(PortableZipReader.ReadFromZip(archive), strategy, ct,
+            file => string.IsNullOrEmpty(file.BinaryFilePath) ? null : archive.GetEntry(file.BinaryFilePath)?.Open());
+
+    private async Task<PortableImportResult> ImportCoreAsync(
+        PortableExportPackage package, ImportConflictStrategy strategy, CancellationToken ct,
+        Func<PortableFileRecord, Stream?>? openBinary)
     {
         var sw = Stopwatch.StartNew();
         var result = new PortableImportResult { StrategyUsed = strategy };
+
+        if (!Enum.IsDefined(strategy))
+            return new PortableImportResult { Error = "Invalid import strategy; use Skip, Overwrite or Merge." };
+        try { PortableZipReader.ValidatePackage(package); }
+        catch (PortableZipSecurityException ex) { return new PortableImportResult { Error = ex.Message }; }
 
         // Schema gate
         if (!CoreSchema.CanRead(package.SchemaVersion))
@@ -138,6 +183,8 @@ public class PortableImportService : IPortableImportService
 
         var preserveIds = IsSameEdition(package.SourceEdition);
         var tenantId = _tenantProvider.TenantId;
+        Guid ResolveId(string kind, Guid sourceId) => preserveIds ? sourceId :
+            StableImportId(tenantId, package, kind, sourceId);
 
         // ID remap dictionaries (only used for cross-edition)
         var vaultIdMap = new Dictionary<Guid, Guid>();
@@ -149,6 +196,8 @@ public class PortableImportService : IPortableImportService
         var knowledgeIdMap = new Dictionary<Guid, Guid>();
         var commentIdMap = new Dictionary<Guid, Guid>();
         var fileRecordIdMap = new Dictionary<Guid, Guid>();
+        var createdKnowledgeIds = new HashSet<Guid>();
+        var createdCommentIds = new HashSet<Guid>();
 
         await using var transaction = await _db.Database.BeginTransactionAsync(ct);
 
@@ -158,52 +207,55 @@ public class PortableImportService : IPortableImportService
                 "Starting import: {Edition} source, {Strategy} strategy, preserveIds={PreserveIds}",
                 package.SourceEdition, strategy, preserveIds);
 
+            var originalVaultIds = (await _db.Vaults.Select(v => v.Id).ToListAsync(ct)).ToHashSet();
+
             // 1. Vaults
             result.Vaults = await ImportVaultsAsync(
-                package.Data.Vaults, vaultIdMap, preserveIds, strategy, tenantId, ct);
+                package.Data.Vaults, vaultIdMap, preserveIds, ResolveId, strategy, tenantId, ct);
 
             // 2. Topics
             result.Topics = await ImportTopicsAsync(
-                package.Data.Topics, topicIdMap, preserveIds, strategy, tenantId, ct);
+                package.Data.Topics, topicIdMap, preserveIds, ResolveId, strategy, tenantId, ct);
 
             // 3. Tags
             result.Tags = await ImportTagsAsync(
-                package.Data.Tags, tagIdMap, preserveIds, strategy, tenantId, ct);
+                package.Data.Tags, tagIdMap, preserveIds, ResolveId, strategy, tenantId, ct);
 
             // 4. Persons
             result.Persons = await ImportPersonsAsync(
-                package.Data.Persons, personIdMap, preserveIds, strategy, tenantId, ct);
+                package.Data.Persons, personIdMap, preserveIds, ResolveId, strategy, tenantId, ct);
 
             // 5. Locations
             result.Locations = await ImportLocationsAsync(
-                package.Data.Locations, locationIdMap, preserveIds, strategy, tenantId, ct);
+                package.Data.Locations, locationIdMap, preserveIds, ResolveId, strategy, tenantId, ct);
 
             // 6. Events
             result.Events = await ImportEventsAsync(
-                package.Data.Events, eventIdMap, preserveIds, strategy, tenantId, ct);
+                package.Data.Events, eventIdMap, preserveIds, ResolveId, strategy, tenantId, ct);
 
             // 7. Knowledge (with junctions)
             var (knowledgeCounts, junctionCount) = await ImportKnowledgeAsync(
                 package.Data.KnowledgeItems, knowledgeIdMap,
                 vaultIdMap, topicIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap,
-                preserveIds, strategy, tenantId, ct);
+                preserveIds, ResolveId, strategy, tenantId, ct, createdKnowledgeIds);
             result.KnowledgeItems = knowledgeCounts;
             result.JunctionsRestored = junctionCount;
 
             // 8. InboxItems
             result.InboxItems = await ImportInboxItemsAsync(
-                package.Data.InboxItems, preserveIds, strategy, tenantId, ct);
+                package.Data.InboxItems, preserveIds, ResolveId, strategy, tenantId, ct);
 
             // 9. VaultPerson junctions (from PortableVault.PersonIds)
             await ImportVaultPersonsAsync(
-                package.Data.Vaults, vaultIdMap, personIdMap, preserveIds, tenantId, ct);
+                package.Data.Vaults, vaultIdMap, personIdMap, preserveIds, tenantId, ct,
+                strategy == ImportConflictStrategy.Skip ? originalVaultIds : null);
 
             // 10. Comments (v2+)
             if (package.Data.Comments.Count > 0)
             {
                 result.Comments = await ImportCommentsAsync(
                     package.Data.Comments, commentIdMap, knowledgeIdMap,
-                    preserveIds, strategy, tenantId, ct);
+                    preserveIds, ResolveId, strategy, tenantId, ct, createdCommentIds);
             }
 
             // 11. FileRecords (v2+)
@@ -211,14 +263,14 @@ public class PortableImportService : IPortableImportService
             {
                 result.FileRecords = await ImportFileRecordsAsync(
                     package.Data.FileRecords, fileRecordIdMap, knowledgeIdMap, commentIdMap,
-                    preserveIds, strategy, tenantId, ct);
+                    preserveIds, ResolveId, strategy, tenantId, ct, openBinary, result, createdKnowledgeIds, createdCommentIds);
             }
 
             // 12. Archives (v2+)
             if (package.Data.Archives.Count > 0)
             {
                 result.ArchiveRecordsStored = await ImportArchivesAsync(
-                    package.Data.Archives, tenantId, ct);
+                    package.Data.Archives, tenantId, strategy, ct);
             }
 
             // 13. Recompute VaultAncestors
@@ -245,7 +297,7 @@ public class PortableImportService : IPortableImportService
     private async Task<EntityImportCounts> ImportVaultsAsync(
         List<PortableVault> portableVaults,
         Dictionary<Guid, Guid> idMap,
-        bool preserveIds,
+        bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
         CancellationToken ct)
@@ -254,13 +306,14 @@ public class PortableImportService : IPortableImportService
 
         // Load existing vaults for conflict detection
         var existingById = await _db.Vaults.ToDictionaryAsync(v => v.Id, ct);
+        var originalIds = existingById.Keys.ToHashSet();
         var existingByName = existingById.Values
             .GroupBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         foreach (var pv in portableVaults)
         {
-            var existing = FindExisting(pv.Id, pv.Name, preserveIds, existingById, existingByName);
+            var existing = FindExisting(resolveId("Vault", pv.Id), pv.Name, preserveIds, existingById, existingByName);
 
             if (existing != null)
             {
@@ -276,7 +329,6 @@ public class PortableImportService : IPortableImportService
                         existing.Description = pv.Description;
                         existing.VaultType = pv.VaultType;
                         existing.IsDefault = pv.IsDefault;
-                        existing.ParentVaultId = preserveIds ? pv.ParentVaultId : RemapNullableId(pv.ParentVaultId, idMap);
                         existing.UpdatedAt = DateTime.UtcNow;
                         existing.PlatformData = SerializeExtensionData(pv.ExtensionData);
                         counts.Overwritten++;
@@ -292,7 +344,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
-                var newId = preserveIds ? pv.Id : Guid.NewGuid();
+                var newId = resolveId("Vault", pv.Id);
                 idMap[pv.Id] = newId;
 
                 var vault = new Vault
@@ -318,16 +370,15 @@ public class PortableImportService : IPortableImportService
 
         await _db.SaveChangesAsync(ct);
 
-        // Second pass: set ParentVaultId using remapped IDs
-        foreach (var pv in portableVaults.Where(v => v.ParentVaultId.HasValue))
+        // Resolve parents only after every ID is known, honoring the selected conflict strategy.
+        foreach (var pv in portableVaults)
         {
             var mappedId = idMap[pv.Id];
-            var mappedParentId = idMap.TryGetValue(pv.ParentVaultId!.Value, out var parentId) ? parentId : (Guid?)null;
-
-            if (mappedParentId.HasValue && existingById.TryGetValue(mappedId, out var vault))
-            {
-                vault.ParentVaultId = mappedParentId;
-            }
+            if (!existingById.TryGetValue(mappedId, out var vault)) continue;
+            if (originalIds.Contains(mappedId) && (strategy == ImportConflictStrategy.Skip ||
+                strategy == ImportConflictStrategy.Merge && vault.ParentVaultId.HasValue)) continue;
+            vault.ParentVaultId = pv.ParentVaultId.HasValue && idMap.TryGetValue(pv.ParentVaultId.Value, out var parentId)
+                ? parentId : null;
         }
 
         await _db.SaveChangesAsync(ct);
@@ -340,14 +391,15 @@ public class PortableImportService : IPortableImportService
         Dictionary<Guid, Guid> personIdMap,
         bool preserveIds,
         Guid tenantId,
-        CancellationToken ct)
+        CancellationToken ct,
+        HashSet<Guid>? skippedVaultIds)
     {
         foreach (var pv in portableVaults)
         {
             if (pv.PersonIds.Count == 0) continue;
 
             var mappedVaultId = vaultIdMap.TryGetValue(pv.Id, out var vid) ? vid : (preserveIds ? pv.Id : (Guid?)null);
-            if (!mappedVaultId.HasValue) continue;
+            if (!mappedVaultId.HasValue || skippedVaultIds?.Contains(mappedVaultId.Value) == true) continue;
 
             // Load existing VaultPerson links for this vault
             var existingPersonIdList = await _db.VaultPersons
@@ -360,7 +412,7 @@ public class PortableImportService : IPortableImportService
             {
                 var mappedPersonId = personIdMap.TryGetValue(personId, out var pid) ? pid : (preserveIds ? personId : (Guid?)null);
                 if (!mappedPersonId.HasValue) continue;
-                if (existingPersonIds.Contains(mappedPersonId.Value)) continue;
+                if (!existingPersonIds.Add(mappedPersonId.Value)) continue;
 
                 _db.VaultPersons.Add(new VaultPerson
                 {
@@ -377,7 +429,7 @@ public class PortableImportService : IPortableImportService
     private async Task<EntityImportCounts> ImportTopicsAsync(
         List<PortableTopic> portableTopics,
         Dictionary<Guid, Guid> idMap,
-        bool preserveIds,
+        bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
         CancellationToken ct)
@@ -390,7 +442,7 @@ public class PortableImportService : IPortableImportService
 
         foreach (var pt in portableTopics)
         {
-            var existing = FindExisting(pt.Id, pt.Name, preserveIds, existingById, existingByName);
+            var existing = FindExisting(resolveId("Topic", pt.Id), pt.Name, preserveIds, existingById, existingByName);
 
             if (existing != null)
             {
@@ -418,7 +470,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
-                var newId = preserveIds ? pt.Id : Guid.NewGuid();
+                var newId = resolveId("Topic", pt.Id);
                 idMap[pt.Id] = newId;
 
                 var topic = new Topic
@@ -446,7 +498,7 @@ public class PortableImportService : IPortableImportService
     private async Task<EntityImportCounts> ImportTagsAsync(
         List<PortableTag> portableTags,
         Dictionary<Guid, Guid> idMap,
-        bool preserveIds,
+        bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
         CancellationToken ct)
@@ -459,7 +511,7 @@ public class PortableImportService : IPortableImportService
 
         foreach (var pt in portableTags)
         {
-            var existing = FindExisting(pt.Id, pt.Name, preserveIds, existingById, existingByName);
+            var existing = FindExisting(resolveId("Tag", pt.Id), pt.Name, preserveIds, existingById, existingByName);
 
             if (existing != null)
             {
@@ -485,7 +537,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
-                var newId = preserveIds ? pt.Id : Guid.NewGuid();
+                var newId = resolveId("Tag", pt.Id);
                 idMap[pt.Id] = newId;
 
                 var tag = new Tag
@@ -512,7 +564,7 @@ public class PortableImportService : IPortableImportService
     private async Task<EntityImportCounts> ImportPersonsAsync(
         List<PortablePerson> portablePersons,
         Dictionary<Guid, Guid> idMap,
-        bool preserveIds,
+        bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
         CancellationToken ct)
@@ -525,7 +577,7 @@ public class PortableImportService : IPortableImportService
 
         foreach (var pp in portablePersons)
         {
-            var existing = FindExisting(pp.Id, pp.Name, preserveIds, existingById, existingByName);
+            var existing = FindExisting(resolveId("Person", pp.Id), pp.Name, preserveIds, existingById, existingByName);
 
             if (existing != null)
             {
@@ -550,7 +602,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
-                var newId = preserveIds ? pp.Id : Guid.NewGuid();
+                var newId = resolveId("Person", pp.Id);
                 idMap[pp.Id] = newId;
 
                 var person = new Person
@@ -577,7 +629,7 @@ public class PortableImportService : IPortableImportService
     private async Task<EntityImportCounts> ImportLocationsAsync(
         List<PortableLocation> portableLocations,
         Dictionary<Guid, Guid> idMap,
-        bool preserveIds,
+        bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
         CancellationToken ct)
@@ -590,7 +642,7 @@ public class PortableImportService : IPortableImportService
 
         foreach (var pl in portableLocations)
         {
-            var existing = FindExisting(pl.Id, pl.Name, preserveIds, existingById, existingByName);
+            var existing = FindExisting(resolveId("Location", pl.Id), pl.Name, preserveIds, existingById, existingByName);
 
             if (existing != null)
             {
@@ -615,7 +667,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
-                var newId = preserveIds ? pl.Id : Guid.NewGuid();
+                var newId = resolveId("Location", pl.Id);
                 idMap[pl.Id] = newId;
 
                 var location = new Location
@@ -642,7 +694,7 @@ public class PortableImportService : IPortableImportService
     private async Task<EntityImportCounts> ImportEventsAsync(
         List<PortableEvent> portableEvents,
         Dictionary<Guid, Guid> idMap,
-        bool preserveIds,
+        bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
         CancellationToken ct)
@@ -655,7 +707,7 @@ public class PortableImportService : IPortableImportService
 
         foreach (var pe in portableEvents)
         {
-            var existing = FindExisting(pe.Id, pe.Name, preserveIds, existingById, existingByName);
+            var existing = FindExisting(resolveId("Event", pe.Id), pe.Name, preserveIds, existingById, existingByName);
 
             if (existing != null)
             {
@@ -680,7 +732,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
-                var newId = preserveIds ? pe.Id : Guid.NewGuid();
+                var newId = resolveId("Event", pe.Id);
                 idMap[pe.Id] = newId;
 
                 var evt = new Event
@@ -713,10 +765,10 @@ public class PortableImportService : IPortableImportService
         Dictionary<Guid, Guid> personIdMap,
         Dictionary<Guid, Guid> locationIdMap,
         Dictionary<Guid, Guid> eventIdMap,
-        bool preserveIds,
+        bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
-        CancellationToken ct)
+        CancellationToken ct, HashSet<Guid> createdIds)
     {
         var counts = new EntityImportCounts();
         var junctionCount = 0;
@@ -735,7 +787,7 @@ public class PortableImportService : IPortableImportService
 
         foreach (var pk in portableKnowledge)
         {
-            var lookupId = preserveIds ? pk.Id : Guid.Empty; // Cross-edition won't match by ID
+            var lookupId = resolveId("Knowledge", pk.Id); // Stable source namespace makes retries idempotent.
             existingById.TryGetValue(lookupId, out var existing);
 
             if (existing != null)
@@ -771,6 +823,9 @@ public class PortableImportService : IPortableImportService
                         existing.BriefSummary ??= pk.BriefSummary;
                         if (string.IsNullOrEmpty(existing.Content))
                             existing.Content = pk.Content;
+                        existing.TopicId ??= RemapNullableId(pk.TopicId, topicIdMap);
+                        junctionCount += MergeKnowledgeJunctions(
+                            existing, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId);
                         existing.IsIndexed = false;
                         existing.UpdatedAt = DateTime.UtcNow;
                         MergePlatformData(existing, pk.ExtensionData);
@@ -780,7 +835,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
-                var newId = preserveIds ? pk.Id : Guid.NewGuid();
+                var newId = resolveId("Knowledge", pk.Id);
                 knowledgeIdMap[pk.Id] = newId;
 
                 var knowledge = new Knowledge
@@ -808,6 +863,7 @@ public class PortableImportService : IPortableImportService
                 junctionCount += CreateKnowledgeJunctions(
                     knowledge, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId);
 
+                createdIds.Add(newId);
                 counts.Created++;
             }
         }
@@ -923,6 +979,40 @@ public class PortableImportService : IPortableImportService
         return count;
     }
 
+    private int MergeKnowledgeJunctions(
+        Knowledge existing, PortableKnowledge source,
+        Dictionary<Guid, Guid> vaultIdMap, Dictionary<Guid, Guid> tagIdMap,
+        Dictionary<Guid, Guid> personIdMap, Dictionary<Guid, Guid> locationIdMap,
+        Dictionary<Guid, Guid> eventIdMap, Dictionary<Guid, Tag> allTags, Guid tenantId)
+    {
+        // Deduplicate by destination identity: distinct source IDs can resolve to the same
+        // named entity across editions. Existing junctions and their metadata stay intact.
+        static List<Guid> MissingIds(IEnumerable<Guid> sourceIds, Dictionary<Guid, Guid> map, IEnumerable<Guid> existingIds)
+        {
+            var seen = existingIds.ToHashSet();
+            return sourceIds.Where(id => map.TryGetValue(id, out var mappedId) && seen.Add(mappedId)).ToList();
+        }
+        var personLinks = source.PersonLinks?.ToList() ?? new();
+        var richPersonIds = personLinks.Select(link => link.EntityId).ToHashSet();
+        personLinks.AddRange(source.PersonIds.Where(id => !richPersonIds.Contains(id))
+            .Select(id => new PortableEntityLink { EntityId = id }));
+        var missingPersonIds = MissingIds(personLinks.Select(link => link.EntityId), personIdMap,
+            existing.KnowledgePersons.Select(p => p.PersonId)).ToHashSet();
+        var additions = new PortableKnowledge
+        {
+            VaultIds = MissingIds(source.VaultIds, vaultIdMap, existing.KnowledgeVaults.Select(v => v.VaultId)),
+            PrimaryVaultId = existing.KnowledgeVaults.Any(v => v.IsPrimary) ? null : source.PrimaryVaultId,
+            TagIds = MissingIds(source.TagIds, tagIdMap, existing.Tags.Select(t => t.Id)),
+            PersonLinks = personLinks.Where(link => missingPersonIds.Contains(link.EntityId)).DistinctBy(link => link.EntityId).ToList(),
+            LocationIds = MissingIds(source.LocationIds.Concat(source.LocationLinks?.Select(link => link.EntityId) ?? []),
+                locationIdMap, existing.KnowledgeLocations.Select(l => l.LocationId)),
+            EventIds = MissingIds(source.EventIds.Concat(source.EventLinks?.Select(link => link.EntityId) ?? []),
+                eventIdMap, existing.KnowledgeEvents.Select(e => e.EventId))
+        };
+        return CreateKnowledgeJunctions(existing, additions, vaultIdMap, tagIdMap,
+            personIdMap, locationIdMap, eventIdMap, allTags, tenantId);
+    }
+
     private int RebuildKnowledgeJunctions(
         Knowledge existing,
         PortableKnowledge pk,
@@ -949,18 +1039,19 @@ public class PortableImportService : IPortableImportService
         List<PortableKnowledgeComment> portableComments,
         Dictionary<Guid, Guid> commentIdMap,
         Dictionary<Guid, Guid> knowledgeIdMap,
-        bool preserveIds,
+        bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
-        CancellationToken ct)
+        CancellationToken ct, HashSet<Guid> createdIds)
     {
         var counts = new EntityImportCounts();
         var existingById = await _db.Comments.ToDictionaryAsync(c => c.Id, ct);
+        var originalIds = existingById.Keys.ToHashSet();
 
         // Two-pass: first create all comments with null ParentCommentId, then set parents
         foreach (var pc in portableComments)
         {
-            var lookupId = preserveIds ? pc.Id : Guid.Empty;
+            var lookupId = resolveId("KnowledgeComment", pc.Id);
             existingById.TryGetValue(lookupId, out var existing);
 
             if (existing != null)
@@ -993,7 +1084,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
-                var newId = preserveIds ? pc.Id : Guid.NewGuid();
+                var newId = resolveId("KnowledgeComment", pc.Id);
                 commentIdMap[pc.Id] = newId;
 
                 var mappedKnowledgeId = knowledgeIdMap.TryGetValue(pc.KnowledgeId, out var kid)
@@ -1017,172 +1108,174 @@ public class PortableImportService : IPortableImportService
                 };
                 _db.Comments.Add(comment);
                 existingById[newId] = comment;
+                createdIds.Add(newId);
                 counts.Created++;
             }
         }
 
         await _db.SaveChangesAsync(ct);
 
-        // Second pass: set ParentCommentId
-        foreach (var pc in portableComments.Where(c => c.ParentCommentId.HasValue))
+        // Existing parent values are retained by Skip/Merge; Overwrite can also clear a parent.
+        foreach (var pc in portableComments)
         {
-            if (!commentIdMap.TryGetValue(pc.Id, out var mappedId)) continue;
-            if (!commentIdMap.TryGetValue(pc.ParentCommentId!.Value, out var mappedParentId)) continue;
-
-            if (existingById.TryGetValue(mappedId, out var comment))
-            {
-                comment.ParentCommentId = mappedParentId;
-            }
+            if (!commentIdMap.TryGetValue(pc.Id, out var mappedId) || !existingById.TryGetValue(mappedId, out var comment)) continue;
+            if (originalIds.Contains(mappedId) && (strategy == ImportConflictStrategy.Skip ||
+                strategy == ImportConflictStrategy.Merge && comment.ParentCommentId.HasValue)) continue;
+            comment.ParentCommentId = pc.ParentCommentId.HasValue && commentIdMap.TryGetValue(pc.ParentCommentId.Value, out var parent)
+                ? parent : null;
         }
 
         await _db.SaveChangesAsync(ct);
         return counts;
     }
 
+    internal const string AttachmentMetadataKey = "__knowzPortableAttachmentMetadata";
+
     private async Task<EntityImportCounts> ImportFileRecordsAsync(
-        List<PortableFileRecord> portableFiles,
-        Dictionary<Guid, Guid> fileRecordIdMap,
-        Dictionary<Guid, Guid> knowledgeIdMap,
-        Dictionary<Guid, Guid> commentIdMap,
-        bool preserveIds,
-        ImportConflictStrategy strategy,
-        Guid tenantId,
-        CancellationToken ct)
+        List<PortableFileRecord> portableFiles, Dictionary<Guid, Guid> fileRecordIdMap,
+        Dictionary<Guid, Guid> knowledgeIdMap, Dictionary<Guid, Guid> commentIdMap,
+        bool preserveIds, Func<string, Guid, Guid> resolveId, ImportConflictStrategy strategy, Guid tenantId, CancellationToken ct,
+        Func<PortableFileRecord, Stream?>? openBinary, PortableImportResult result,
+        HashSet<Guid> createdKnowledgeIds, HashSet<Guid> createdCommentIds)
     {
         var counts = new EntityImportCounts();
-        var existingById = await _db.FileRecords.ToDictionaryAsync(f => f.Id, ct);
-
+        var existingById = await _db.FileRecords.Include(f => f.Attachments).ToDictionaryAsync(f => f.Id, ct);
         foreach (var pf in portableFiles)
         {
-            var lookupId = preserveIds ? pf.Id : Guid.Empty;
-            existingById.TryGetValue(lookupId, out var existing);
-
-            if (existing != null)
+            existingById.TryGetValue(resolveId("FileRecord", pf.Id), out var file);
+            var existing = file != null;
+            if (existing && strategy == ImportConflictStrategy.Skip)
             {
-                fileRecordIdMap[pf.Id] = existing.Id;
+                fileRecordIdMap[pf.Id] = file!.Id;
+                counts.Skipped++;
+                // Shared files recur in independently importable parts. Only attach to owners
+                // created by this part; keep existing owners, metadata and bytes untouched.
+                var linksForNewOwners = pf.Attachments.Where(a =>
+                    (a.KnowledgeId.HasValue && knowledgeIdMap.TryGetValue(a.KnowledgeId.Value, out var kid) && createdKnowledgeIds.Contains(kid)) ||
+                    (a.CommentId.HasValue && commentIdMap.TryGetValue(a.CommentId.Value, out var cid) && createdCommentIds.Contains(cid))).ToList();
+                if (linksForNewOwners.Count > 0)
+                    RestoreFileAttachmentLinks(file!, linksForNewOwners, knowledgeIdMap, commentIdMap, replace: false);
+                continue;
+            }
+            if (file == null)
+            {
+                file = new FileRecord { Id = resolveId("FileRecord", pf.Id), TenantId = tenantId,
+                    CreatedAt = pf.CreatedAt, UpdatedAt = pf.UpdatedAt, BlobUri = pf.BlobUri, BlobMigrationPending = true };
+                _db.FileRecords.Add(file);
+                existingById[file.Id] = file;
+                counts.Created++;
+            }
+            else if (strategy == ImportConflictStrategy.Overwrite) counts.Overwritten++;
+            else counts.Merged++;
+            fileRecordIdMap[pf.Id] = file.Id;
 
-                switch (strategy)
-                {
-                    case ImportConflictStrategy.Skip:
-                        counts.Skipped++;
-                        break;
-                    case ImportConflictStrategy.Overwrite:
-                        existing.FileName = pf.FileName;
-                        existing.ContentType = pf.ContentType;
-                        existing.SizeBytes = pf.SizeBytes;
-                        existing.BlobUri = pf.BlobUri;
-                        existing.TranscriptionText = pf.TranscriptionText;
-                        existing.ExtractedText = pf.ExtractedText;
-                        existing.VisionDescription = pf.VisionDescription;
-                        existing.BlobMigrationPending = true;
-                        existing.UpdatedAt = DateTime.UtcNow;
-                        existing.PlatformData = SerializeExtensionData(pf.ExtensionData);
-                        counts.Overwritten++;
-                        break;
-                    case ImportConflictStrategy.Merge:
-                        existing.TranscriptionText ??= pf.TranscriptionText;
-                        existing.ExtractedText ??= pf.ExtractedText;
-                        existing.VisionDescription ??= pf.VisionDescription;
-                        existing.UpdatedAt = DateTime.UtcNow;
-                        MergePlatformData(existing, pf.ExtensionData);
-                        counts.Merged++;
-                        break;
-                }
+            if (!existing || strategy == ImportConflictStrategy.Overwrite)
+            {
+                file.FileName = pf.FileName; file.ContentType = pf.ContentType; file.SizeBytes = pf.SizeBytes;
+                file.TranscriptionText = pf.TranscriptionText; file.ExtractedText = pf.ExtractedText; file.VisionDescription = pf.VisionDescription;
+                var extensionData = pf.ExtensionData?.Where(p => p.Key != AttachmentMetadataKey)
+                    .ToDictionary(p => p.Key, p => p.Value) ?? new();
+                // Attachment metadata belonging to other independently imported parts survives
+                // file overwrite; the link restore below replaces only owners in this package.
+                if (existing && !string.IsNullOrEmpty(file.PlatformData)
+                    && JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(file.PlatformData) is { } previous
+                    && previous.TryGetValue(AttachmentMetadataKey, out var previousLinks))
+                    extensionData[AttachmentMetadataKey] = previousLinks;
+                file.PlatformData = SerializeExtensionData(extensionData);
             }
             else
             {
-                var newId = preserveIds ? pf.Id : Guid.NewGuid();
-                fileRecordIdMap[pf.Id] = newId;
-
-                // Determine if binary content is available for upload
-                string? uploadedBlobUri = pf.BlobUri;
-                bool blobMigrationPending = true;
-
-                if (!string.IsNullOrEmpty(pf.BinaryContentBase64))
-                {
-                    try
-                    {
-                        var binaryData = Convert.FromBase64String(pf.BinaryContentBase64);
-                        using var stream = new MemoryStream(binaryData);
-
-                        uploadedBlobUri = await _storageProvider.UploadAsync(
-                            tenantId, newId, stream,
-                            pf.ContentType ?? "application/octet-stream", ct);
-
-                        blobMigrationPending = false;
-
-                        _logger.LogInformation(
-                            "Uploaded binary content for file {FileRecordId} ({FileName}, {SizeBytes} bytes)",
-                            newId, pf.FileName, pf.SizeBytes);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex,
-                            "Failed to upload binary for file {FileRecordId} ({FileName}). Setting BlobMigrationPending=true.",
-                            newId, pf.FileName);
-                        uploadedBlobUri = pf.BlobUri;
-                        blobMigrationPending = true;
-                    }
-                }
-
-                var file = new FileRecord
-                {
-                    Id = newId,
-                    TenantId = tenantId,
-                    FileName = pf.FileName,
-                    ContentType = pf.ContentType,
-                    SizeBytes = pf.SizeBytes,
-                    BlobUri = uploadedBlobUri,
-                    TranscriptionText = pf.TranscriptionText,
-                    ExtractedText = pf.ExtractedText,
-                    VisionDescription = pf.VisionDescription,
-                    BlobMigrationPending = blobMigrationPending,
-                    CreatedAt = pf.CreatedAt,
-                    UpdatedAt = pf.UpdatedAt,
-                    PlatformData = SerializeExtensionData(pf.ExtensionData)
-                };
-                _db.FileRecords.Add(file);
-                existingById[newId] = file;
-
-                // Create attachment junctions
-                foreach (var attachment in pf.Attachments)
-                {
-                    var mappedKnowledgeId = attachment.KnowledgeId.HasValue
-                        ? (knowledgeIdMap.TryGetValue(attachment.KnowledgeId.Value, out var kid) ? kid : (preserveIds ? attachment.KnowledgeId : null))
-                        : null;
-                    var mappedCommentId = attachment.CommentId.HasValue
-                        ? (commentIdMap.TryGetValue(attachment.CommentId.Value, out var cid) ? cid : (preserveIds ? attachment.CommentId : null))
-                        : null;
-
-                    _db.FileAttachments.Add(new FileAttachment
-                    {
-                        FileRecordId = newId,
-                        KnowledgeId = mappedKnowledgeId,
-                        CommentId = mappedCommentId,
-                        TenantId = tenantId
-                    });
-                }
-
-                counts.Created++;
+                file.TranscriptionText ??= pf.TranscriptionText; file.ExtractedText ??= pf.ExtractedText; file.VisionDescription ??= pf.VisionDescription;
+                MergePlatformData(file, pf.ExtensionData?.Where(p => p.Key != AttachmentMetadataKey)
+                    .ToDictionary(p => p.Key, p => p.Value));
             }
-        }
+            if (existing) file.UpdatedAt = DateTime.UtcNow;
 
+            if (!existing || strategy == ImportConflictStrategy.Overwrite || file.BlobMigrationPending || string.IsNullOrEmpty(file.BlobUri))
+                await RestoreBinaryAsync(pf, file, openBinary, result, ct);
+
+            RestoreFileAttachmentLinks(file, pf.Attachments, knowledgeIdMap, commentIdMap,
+                replace: existing && strategy == ImportConflictStrategy.Overwrite);
+        }
         await _db.SaveChangesAsync(ct);
         return counts;
+    }
+
+    private void RestoreFileAttachmentLinks(FileRecord file, IEnumerable<PortableFileAttachmentLink> attachments,
+        Dictionary<Guid, Guid> knowledgeIdMap, Dictionary<Guid, Guid> commentIdMap, bool replace)
+    {
+        var metadata = string.IsNullOrEmpty(file.PlatformData) ? new Dictionary<string, JsonElement>()
+            : JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(file.PlatformData)!;
+        var links = metadata.TryGetValue(AttachmentMetadataKey, out var oldLinks)
+            ? oldLinks.Deserialize<List<PortableFileAttachmentLink>>() ?? new() : new List<PortableFileAttachmentLink>();
+        if (replace)
+        {
+            var knowledgeIds = knowledgeIdMap.Values.ToHashSet();
+            var commentIds = commentIdMap.Values.ToHashSet();
+            bool IsCurrentOwner(Guid? knowledgeId, Guid? commentId) =>
+                (knowledgeId.HasValue && knowledgeIds.Contains(knowledgeId.Value)) ||
+                (commentId.HasValue && commentIds.Contains(commentId.Value));
+            foreach (var existing in file.Attachments.Where(a => IsCurrentOwner(a.KnowledgeId, a.CommentId)).ToList())
+            {
+                _db.FileAttachments.Remove(existing);
+                file.Attachments.Remove(existing);
+            }
+            links.RemoveAll(a => IsCurrentOwner(a.KnowledgeId, a.CommentId));
+        }
+        foreach (var attachment in attachments)
+        {
+            var kid = RemapNullableId(attachment.KnowledgeId, knowledgeIdMap);
+            var cid = RemapNullableId(attachment.CommentId, commentIdMap);
+            if (!kid.HasValue && !cid.HasValue) continue;
+            if (!file.Attachments.Any(a => a.KnowledgeId == kid && a.CommentId == cid))
+            {
+                var junction = new FileAttachment { FileRecordId = file.Id, KnowledgeId = kid, CommentId = cid, TenantId = file.TenantId };
+                _db.FileAttachments.Add(junction);
+            }
+            if (!links.Any(a => a.KnowledgeId == kid && a.CommentId == cid))
+            {
+                var link = JsonSerializer.Deserialize<PortableFileAttachmentLink>(JsonSerializer.Serialize(attachment))!;
+                link.KnowledgeId = kid; link.CommentId = cid; links.Add(link);
+            }
+        }
+        if (links.Count > 0) metadata[AttachmentMetadataKey] = JsonSerializer.SerializeToElement(links);
+        else metadata.Remove(AttachmentMetadataKey);
+        file.PlatformData = metadata.Count > 0 ? JsonSerializer.Serialize(metadata) : null;
+    }
+
+    private async Task RestoreBinaryAsync(PortableFileRecord source, FileRecord destination,
+        Func<PortableFileRecord, Stream?>? openBinary, PortableImportResult result, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(source.BinaryFilePath) && string.IsNullOrEmpty(source.BinaryContentBase64)) return;
+        try
+        {
+            using var stream = !string.IsNullOrEmpty(source.BinaryContentBase64)
+                ? new MemoryStream(Convert.FromBase64String(source.BinaryContentBase64))
+                : openBinary?.Invoke(source) ?? throw new FileNotFoundException($"ZIP binary '{source.BinaryFilePath}' is missing.");
+            destination.BlobUri = await _storageProvider.UploadAsync(destination.TenantId, destination.Id, stream,
+                source.ContentType ?? "application/octet-stream", ct);
+            destination.BlobMigrationPending = false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            result.FilesBlobFailed++;
+            result.Warnings.Add($"Could not restore file '{source.FileName}' ({destination.Id}): {ex.Message}");
+            _logger.LogWarning(ex, "Failed to restore portable file {FileId}", destination.Id);
+        }
     }
 
     private async Task<int> ImportArchivesAsync(
         Dictionary<string, List<JsonElement>> archives,
         Guid tenantId,
+        ImportConflictStrategy strategy,
         CancellationToken ct)
     {
         var count = 0;
 
-        // Remove existing archives for this tenant to avoid duplicates on re-import
+        // Preserve unrelated archives; conflicts are local to entity type and original ID.
         var existingArchives = await _db.PortableArchives
             .Where(a => a.TenantId == tenantId)
             .ToListAsync(ct);
-        _db.PortableArchives.RemoveRange(existingArchives);
 
         foreach (var (entityType, entries) in archives)
         {
@@ -1194,14 +1287,31 @@ public class PortableImportService : IPortableImportService
                     Guid.TryParse(idProp.GetString(), out originalId);
                 }
 
-                _db.PortableArchives.Add(new PortableArchive
+                var existing = existingArchives.FirstOrDefault(a => a.EntityType == entityType &&
+                    (originalId != Guid.Empty ? a.OriginalId == originalId : a.JsonData == entry.GetRawText()));
+                if (existing != null)
+                {
+                    if (strategy == ImportConflictStrategy.Overwrite) { existing.JsonData = entry.GetRawText(); count++; }
+                    else if (strategy == ImportConflictStrategy.Merge)
+                    {
+                        var fields = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(existing.JsonData)!;
+                        foreach (var field in entry.EnumerateObject())
+                            if (!fields.TryGetValue(field.Name, out var value) || value.ValueKind == JsonValueKind.Null)
+                                fields[field.Name] = field.Value.Clone();
+                        existing.JsonData = JsonSerializer.Serialize(fields); count++;
+                    }
+                    continue;
+                }
+                var added = new PortableArchive
                 {
                     TenantId = tenantId,
                     EntityType = entityType,
                     OriginalId = originalId,
                     JsonData = entry.GetRawText(),
                     CreatedAt = DateTime.UtcNow
-                });
+                };
+                _db.PortableArchives.Add(added);
+                existingArchives.Add(added);
                 count++;
             }
         }
@@ -1212,7 +1322,7 @@ public class PortableImportService : IPortableImportService
 
     private async Task<EntityImportCounts> ImportInboxItemsAsync(
         List<PortableInboxItem> portableItems,
-        bool preserveIds,
+        bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
         CancellationToken ct)
@@ -1222,7 +1332,7 @@ public class PortableImportService : IPortableImportService
 
         foreach (var pi in portableItems)
         {
-            var lookupId = preserveIds ? pi.Id : Guid.Empty;
+            var lookupId = resolveId("InboxItem", pi.Id);
             existingById.TryGetValue(lookupId, out var existing);
 
             if (existing != null)
@@ -1250,7 +1360,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
-                var newId = preserveIds ? pi.Id : Guid.NewGuid();
+                var newId = resolveId("InboxItem", pi.Id);
                 var item = new InboxItem
                 {
                     Id = newId,
@@ -1308,6 +1418,15 @@ public class PortableImportService : IPortableImportService
         await _db.SaveChangesAsync(ct);
     }
 
+    private static Guid StableImportId(Guid destinationTenantId, PortableExportPackage source, string kind, Guid sourceId)
+    {
+        var name = $"knowz-portability-v1|{destinationTenantId:D}|{(source.SourceEdition ?? string.Empty).ToLowerInvariant()}|{source.SourceTenantId:D}|{kind}|{sourceId:D}";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(name));
+        hash[6] = (byte)((hash[6] & 0x0f) | 0x80);
+        hash[8] = (byte)((hash[8] & 0x3f) | 0x80);
+        return new Guid(hash.AsSpan(0, 16), bigEndian: true);
+    }
+
     // --- Helper methods ---
 
     private static bool IsSameEdition(string sourceEdition)
@@ -1317,7 +1436,7 @@ public class PortableImportService : IPortableImportService
         Guid id, string name, bool preserveIds,
         Dictionary<Guid, T> byId, Dictionary<string, T> byName)
     {
-        if (preserveIds && byId.TryGetValue(id, out var byIdResult))
+        if (byId.TryGetValue(id, out var byIdResult))
             return byIdResult;
 
         if (!preserveIds && byName.TryGetValue(name, out var byNameResult))

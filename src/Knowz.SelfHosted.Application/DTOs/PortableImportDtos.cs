@@ -38,6 +38,12 @@ public class ImportValidationResult
     public int ConflictingPersons { get; set; }
     public int ConflictingLocations { get; set; }
     public int ConflictingEvents { get; set; }
+    public int ConflictingTopics { get; set; }
+    public int ConflictingTags { get; set; }
+    public int ConflictingComments { get; set; }
+    public int ConflictingFileRecords { get; set; }
+    public int ConflictingInboxItems { get; set; }
+
 
     public List<string> Warnings { get; set; } = new();
     public List<string> Errors { get; set; } = new();
@@ -61,6 +67,7 @@ public class PortableImportResult
     public EntityImportCounts Comments { get; set; } = new();
     public EntityImportCounts FileRecords { get; set; } = new();
     public int ArchiveRecordsStored { get; set; }
+    public int FilesBlobFailed { get; set; }
 
     // Junction restoration
     public int JunctionsRestored { get; set; }

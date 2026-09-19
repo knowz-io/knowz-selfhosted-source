@@ -112,7 +112,7 @@ public class KnowzProxyTools
         return false;
     }
 
-    [McpServerTool(Name = "search_knowledge")]
+    [McpServerTool(Name = "search_knowledge", Title = "Search Knowledge", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Find, search, look up, locate, or retrieve any information, code, documentation, specs, notes, files, transcripts, or content in the knowledge base. Use this for any query about what exists, what was written, what was saved, or to find something by keyword, topic, or concept. Supports filtering by tags and date range. Status, current, board, and ops questions are recency-prioritized server-side; pass startDate only when the user asked for a date range.")]
     public async Task<object> SearchKnowledge(
         [Description("Natural language search query")] string? query = null,
@@ -162,7 +162,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("search_knowledge", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "graph_query")]
+    [McpServerTool(Name = "graph_query", Title = "Graph Query", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Query the tenant- and vault-scoped code and knowledge graph. Returns bounded structural evidence and opaque graph intelligence identifiers; results are not a completeness proof.")]
     public async Task<object> GraphQuery(
         [Description("Graph operation")] GraphQueryOperation? op = null,
@@ -273,7 +273,7 @@ public class KnowzProxyTools
         return result;
     }
 
-    [McpServerTool(Name = "advanced_search")]
+    [McpServerTool(Name = "advanced_search", Title = "Advanced Search", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Agentic-compatible advanced search over knowledge with deterministic source summaries. Use when a higher-quality answer needs inspectable evidence before synthesis.")]
     public async Task<object> AdvancedSearch(
         [Description("Natural language or exact search query")] string? query = null,
@@ -303,7 +303,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("advanced_search", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "list_matching_items")]
+    [McpServerTool(Name = "list_matching_items", Title = "List Matching Items", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("List or search matching knowledge items for Agentic collection workflows.")]
     public async Task<string> ListMatchingItems(
         [Description("Optional search query. When supplied, behaves like advanced_search.")] string? query = null,
@@ -330,7 +330,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("list_matching_items", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "inspect_document_map")]
+    [McpServerTool(Name = "inspect_document_map", Title = "Inspect Document Map", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Inspect a bounded structural map of a knowledge document without dumping the full document.")]
     public async Task<object> InspectDocumentMap(
         [Description("Knowledge item GUID")] string? knowledgeId = null,
@@ -347,7 +347,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("inspect_document_map", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_document_window")]
+    [McpServerTool(Name = "get_document_window", Title = "Get Document Window", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Get a bounded text window from a knowledge document by character offset.")]
     public async Task<object> GetDocumentWindow(
         [Description("Knowledge item GUID")] string? knowledgeId = null,
@@ -366,7 +366,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("get_document_window", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "search_document_text")]
+    [McpServerTool(Name = "search_document_text", Title = "Search Document Text", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Search exact text inside one document or accessible knowledge content. Returns bounded snippets and character offsets.")]
     public async Task<object> SearchDocumentText(
         [Description("Exact text to search for")] string? query = null,
@@ -386,7 +386,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("search_document_text", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_knowledge_item")]
+    [McpServerTool(Name = "get_knowledge_item", Title = "Get Knowledge Item", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Get, fetch, read, open, view, or retrieve the full details of a specific knowledge item by its ID. Use when you have an ID and need the complete content, metadata, or related items. Also use to drill into a search result.")]
     public async Task<object> GetKnowledgeItem(
         [Description("Knowledge item GUID")] string? id = null,
@@ -407,7 +407,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("get_knowledge_item", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "list_topics")]
+    [McpServerTool(Name = "list_topics", Title = "List Topics", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("List, show, browse, display, or see all topics, categories, themes, or subject areas in the knowledge base. Use when asking 'what topics exist', 'show me categories', 'what's organized', or exploring the knowledge structure. Timestamps are in ISO 8601 format.")]
     public async Task<string> ListTopics(
         [Description("Maximum number of topics (default: 50)")] int limit = 50,
@@ -419,7 +419,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("list_topics", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_topic_details")]
+    [McpServerTool(Name = "get_topic_details", Title = "Get Topic Details", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Get, view, explore, or retrieve detailed information about a specific topic, category, or theme including all related knowledge items. Use when drilling into a topic, exploring a category, or seeing everything related to a subject.")]
     public async Task<object> GetTopicDetails(
         [Description("Topic GUID")] string? id = null,
@@ -433,7 +433,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("get_topic_details", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "list_vaults")]
+    [McpServerTool(Name = "list_vaults", Title = "List Vaults", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("List, show, browse, display, or see all vaults, workspaces, projects, or collections available. Use when asking 'what vaults exist', 'show my projects', 'which workspaces', or exploring what's accessible. May be filtered if connection is scoped to a specific vault. Timestamps are in ISO 8601 format.")]
     public async Task<string> ListVaults(
         [Description("Include item counts (default: false)")] bool includeStats = false,
@@ -460,7 +460,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("list_vaults", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "list_vault_contents")]
+    [McpServerTool(Name = "list_vault_contents", Title = "List Vault Contents", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("List, show, browse, display, view, or see what's inside a vault, workspace, project, or collection. Use when asking 'what's in this vault', 'show me everything', 'list all items', 'recent additions', or browsing contents. Supports explicit shared vault IDs when the caller has a read grant. Supports filtering by tags, type (Note, Document, Transcript, Image, Video, Audio), and date range. Vault ID may be overridden by connection settings.")]
     public async Task<string> ListVaultContents(
         [Description("Vault GUID (may be overridden by connection settings)")] string? vaultId = null,
@@ -505,7 +505,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("list_vault_contents", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "find_entities")]
+    [McpServerTool(Name = "find_entities", Title = "Find Entities", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Find, list, discover, or look up people, names, authors, contributors, places, locations, companies, organizations, events, dates, or any named entities mentioned anywhere in the knowledge base. Use when asking 'who', 'where', 'when', or looking for specific named things.")]
     public async Task<object> FindEntities(
         [Description("Type of entity to find (person, location, event)")] string? entityType = null,
@@ -525,7 +525,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("find_entities", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "ask_question")]
+    [McpServerTool(Name = "ask_question", Title = "Ask Question", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Answer any question, explain something, help understand, analyze, summarize, compare, or reason about code, documentation, architecture, decisions, or knowledge. Use for 'what is', 'how does', 'why', 'explain', 'tell me about', 'help me understand', or any inquiry requiring AI-powered reasoning with source references. Enable researchMode for complex questions needing thorough analysis.")]
     public async Task<object> AskQuestion(
         [Description("The question to ask about your knowledge base (required)")] string? question = null,
@@ -576,7 +576,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("ask_question", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "create_knowledge")]
+    [McpServerTool(Name = "create_knowledge", Title = "Create Knowledge", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("Save, store, create, add, remember, document, record, write, persist, or capture any information, notes, decisions, learnings, specs, documentation, or content for later retrieval. Use when the user wants to save something, document a decision, create a note, or store information. AI processing (summarization, entity extraction) runs automatically.")]
     public async Task<string> CreateKnowledge(
         [Description("Content of the knowledge item (optional if file attachments will be added separately)")] string? content = null,
@@ -627,7 +627,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("create_knowledge", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "create_vault")]
+    [McpServerTool(Name = "create_vault", Title = "Create Vault", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("Create a new vault, workspace, project, or collection to organize knowledge. Supports creating child vaults under an existing parent vault for hierarchical organization.")]
     public async Task<object> CreateVault(
         [Description("Name for the new vault (required)")] string? name = null,
@@ -666,7 +666,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("create_vault", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "update_knowledge")]
+    [McpServerTool(Name = "update_knowledge", Title = "Update Knowledge", ReadOnly = false, Destructive = true, OpenWorld = false)]
     [Description("Replace content, title, tags, or metadata of an existing knowledge item. Use when overwriting a document with entirely new content, changing tags, or moving items between vaults. All fields except ID are optional for partial updates. AI re-processing is triggered if content changes.")]
     public async Task<object> UpdateKnowledge(
         [Description("Knowledge item ID (required)")] string? id = null,
@@ -716,7 +716,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("update_knowledge", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "amend_knowledge")]
+    [McpServerTool(Name = "amend_knowledge", Title = "Amend Knowledge", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("DEPRECATED (removal no earlier than 2026-08-01). Use amend_knowledge_async instead. This tool now returns immediately with { status: 'queued', amendRequestId, message } and the amendment is applied in the background. Poll via get_amend_request_status. Apply a natural language edit instruction to an existing knowledge item — add a section, update part of the content, remove a paragraph, fix information, or make any incremental change — without replacing the entire content.")]
     public async Task<object> AmendKnowledge(
         [Description("Knowledge item ID (required)")] string? id = null,
@@ -738,7 +738,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("amend_knowledge", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "amend_knowledge_async")]
+    [McpServerTool(Name = "amend_knowledge_async", Title = "Amend Knowledge Async", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("Apply a natural language edit instruction to an existing knowledge item. Returns immediately with { status, amendRequestId, knowledgeId, pollUrl }; the amendment is applied in the background via Service Bus. Poll with get_amend_request_status. Amendments against the same knowledge item are processed serially. Bursting many amends at one item will queue them; expect linear latency growth. Independent items amend in parallel. Supply an optional amendRequestId (idempotency key, up to 128 chars, GUID format) to deduplicate retries — repeated calls with the same (tenant, amendRequestId) return the existing request's current state without re-enqueuing.")]
     public async Task<object> AmendKnowledgeAsync(
         [Description("Knowledge item ID (required)")] string? id = null,
@@ -777,7 +777,7 @@ public class KnowzProxyTools
     /// The optional parameters trail the required one because C# demands it; MCP passes arguments
     /// by name, so the reorder is wire-safe.
     /// </summary>
-    [McpServerTool(Name = "get_amend_request_status")]
+    [McpServerTool(Name = "get_amend_request_status", Title = "Get Amend Request Status", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Poll the status of a specific amend request by ID. Returns the full request row: status (queued | processing | completed | failed | staleBase | cancelled), timestamps, attempt count, last error, and resulting content hash (once complete). Only amendRequestId is required; knowledgeId (alias: id) is optional and narrows the lookup.")]
     public async Task<object> GetAmendRequestStatus(
         [Description("ID of the amend request to poll (required, GUID)")] string? amendRequestId = null,
@@ -804,7 +804,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("get_amend_request_status", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "bulk_get_knowledge_items")]
+    [McpServerTool(Name = "bulk_get_knowledge_items", Title = "Bulk Get Knowledge Items", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Get, fetch, or retrieve multiple knowledge items at once by their IDs. Use when you need to load several items efficiently, compare multiple documents, or gather context from multiple sources. Maximum 100 IDs per request.")]
     public async Task<object> BulkGetKnowledgeItems(
         [Description("Array of knowledge item GUIDs to fetch (required, max 100)")] string[]? ids = null,
@@ -825,7 +825,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("bulk_get_knowledge_items", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "create_inbox_item")]
+    [McpServerTool(Name = "create_inbox_item", Title = "Create Inbox Item", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("Save something to the inbox for later review. Inbox items are staging content that hasn't been committed to a knowledge vault yet -- useful for recommendations, things to follow up on, uncertain items, or quick captures that need processing later. Supports optional file attachments via pre-uploaded FileRecord IDs.")]
     public async Task<object> CreateInboxItem(
         [Description("Text content for the inbox item (required)")] string? body = null,
@@ -849,7 +849,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("create_inbox_item", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "attach_files")]
+    [McpServerTool(Name = "attach_files", Title = "Attach Files", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("Attach one or more pre-uploaded files to an existing knowledge item or inbox item. Files must be uploaded first via the file upload API. Triggers AI processing (OCR, transcription, entity extraction) for knowledge item attachments.")]
     public async Task<object> AttachFiles(
         [Description("ID of the knowledge item or inbox item to attach files to (required)")] string? targetId = null,
@@ -874,7 +874,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("attach_files", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "upload_file")]
+    [McpServerTool(Name = "upload_file", Title = "Upload File", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("Upload a file's bytes into Knowz. Provide content as base64 in 'contentBase64' — this tool does NOT read files from disk and accepts no file path. Inline uploads are capped at 8 MB decoded; for larger files use the HTTP chunked upload API and then attach_files. Choose 'target': 'knowledge' attaches to an existing knowledge item (needs targetId) and queues AI processing; 'new-knowledge' creates a knowledge item in a vault (needs vaultId) and queues AI processing; 'inbox' creates an inbox item for later triage (no AI processing); 'standalone' stores an unattached file with no AI processing.")]
     public async Task<object> UploadFile(
         [Description("File name including extension, e.g. 'design-notes.pdf' (required). No path separators.")] string? fileName = null,
@@ -912,7 +912,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("upload_file", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "list_todos")]
+    [McpServerTool(Name = "list_todos", Title = "List Todos", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("List user-facing todos from Knowz task data. Use for pending, due, completed, assigned, created, or extracted todo questions.")]
     public async Task<string> ListTodos(
         [Description("Optional status filter: Open, InProgress, Completed, or Cancelled")] string? status = null,
@@ -965,7 +965,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("list_todos", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_todo_summary")]
+    [McpServerTool(Name = "get_todo_summary", Title = "Get Todo Summary", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Get deterministic todo counts by status, due bucket, priority, and vault.")]
     public async Task<string> GetTodoSummary(
         [Description("Vault ID to scope the summary. May be overridden by connection settings.")] string? vaultId = null,
@@ -985,7 +985,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("get_todo_summary", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "create_todo")]
+    [McpServerTool(Name = "create_todo", Title = "Create Todo", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("Create a standalone user-facing todo. Tenant and current user are inherited from authentication.")]
     public async Task<object> CreateTodo(
         [Description("Todo title")] string? title = null,
@@ -1016,7 +1016,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("create_todo", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "update_todo_status")]
+    [McpServerTool(Name = "update_todo_status", Title = "Update Todo Status", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("Update a todo status. Completing an anchored todo updates the source document checkbox.")]
     public async Task<object> UpdateTodoStatus(
         [Description("Todo GUID")] string? id = null,
@@ -1039,7 +1039,7 @@ public class KnowzProxyTools
 
     // Additional non-tool-attributed tools that were added after initial implementation
 
-    [McpServerTool(Name = "count_knowledge")]
+    [McpServerTool(Name = "count_knowledge", Title = "Count Knowledge", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Count how many knowledge items match specific criteria. Use for analytics, progress tracking, or understanding the scope of content. Supports filtering by type, title pattern, file pattern, and date range.")]
     public async Task<string> CountKnowledge(
         [Description("Optional knowledge type filter")] string? knowledgeType = null,
@@ -1061,7 +1061,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("count_knowledge", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_statistics")]
+    [McpServerTool(Name = "get_statistics", Title = "Get Statistics", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Get aggregate statistics about the knowledge base including total items, breakdown by type, breakdown by vault, and date range of content.")]
     public async Task<string> GetStatistics(
         CancellationToken cancellationToken = default)
@@ -1070,7 +1070,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("get_statistics", new Dictionary<string, object>(), cancellationToken);
     }
 
-    [McpServerTool(Name = "search_by_file_pattern")]
+    [McpServerTool(Name = "search_by_file_pattern", Title = "Search By File Pattern", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Search for knowledge items by file path pattern. Supports wildcards: * matches any characters, ? matches a single character. Example: '*.cs' finds all C# files, 'src/**/*.ts' finds TypeScript files under src.")]
     public async Task<object> SearchByFilePattern(
         [Description("File path pattern with wildcards (* and ?)")] string? pattern = null,
@@ -1092,7 +1092,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("search_by_file_pattern", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "search_by_title_pattern")]
+    [McpServerTool(Name = "search_by_title_pattern", Title = "Search By Title Pattern", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Search for knowledge items by title pattern. Supports wildcards: * matches any characters, ? matches a single character.")]
     public async Task<object> SearchByTitlePattern(
         [Description("Title pattern with wildcards (* and ?)")] string? pattern = null,
@@ -1114,7 +1114,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("search_by_title_pattern", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "add_comment")]
+    [McpServerTool(Name = "add_comment", Title = "Add Comment", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("Add a comment or contribution to a knowledge item. Comments are included in the knowledge item's AI summary and search index. Use this to add notes, corrections, additional context, or answers to a knowledge item.")]
     public async Task<object> AddComment(
         [Description("Knowledge item GUID to comment on (required)")] string? knowledgeItemId = null,
@@ -1145,7 +1145,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("add_comment", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "list_comments")]
+    [McpServerTool(Name = "list_comments", Title = "List Comments", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("List all comments and contributions on a knowledge item. Returns threaded comments with replies, author names, and attachment counts. Use this to see what others have contributed or to check for existing answers before adding a new comment.")]
     public async Task<object> ListComments(
         [Description("Knowledge item GUID to list comments for (required)")] string? knowledgeItemId = null,
@@ -1163,7 +1163,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("list_comments", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_version_history")]
+    [McpServerTool(Name = "get_version_history", Title = "Get Version History", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("Get the version history and change log for a specific knowledge item. Shows what changed between versions, when, and why — including content diffs, change summaries, and line-level statistics. Use when the user asks about changes, edits, revisions, or history of a knowledge item.")]
     public async Task<object> GetVersionHistory(
         [Description("Knowledge item GUID to get version history for")] string? knowledgeId = null,
@@ -1177,7 +1177,7 @@ public class KnowzProxyTools
         return await _backend.ExecuteToolAsync("get_version_history", args, cancellationToken);
     }
 
-    [McpServerTool(Name = "list_knowledge_items")]
+    [McpServerTool(Name = "list_knowledge_items", Title = "List Knowledge Items", ReadOnly = true, Destructive = false, OpenWorld = false)]
     [Description("List knowledge items with pagination and sorting. Supports filtering by type, title/file patterns, and date range. Use for browsing or paginating through large result sets.")]
     public async Task<string> ListKnowledgeItems(
         [Description("Page number (1-based, default: 1)")] int page = 1,

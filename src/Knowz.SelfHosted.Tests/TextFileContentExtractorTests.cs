@@ -35,6 +35,8 @@ public class TextFileContentExtractorTests
     [InlineData("application/json", true)]
     [InlineData("application/xml", true)]
     [InlineData("text/x-custom", true)]      // Wildcard text/* support
+    [InlineData("text/rtf", false)]          // Structured RTF must reach anydoc, never raw text
+    [InlineData("TEXT/RTF", false)]
     [InlineData("application/pdf", false)]
     [InlineData("image/png", false)]
     [InlineData("audio/mp3", false)]

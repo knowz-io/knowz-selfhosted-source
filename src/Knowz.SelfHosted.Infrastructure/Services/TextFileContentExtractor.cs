@@ -27,6 +27,10 @@ public class TextFileContentExtractor : IFileContentExtractor
         if (string.IsNullOrEmpty(contentType))
             return false;
 
+        // RTF is structured document markup; the local anydoc tier owns both RTF MIME types.
+        if (string.Equals(contentType, "text/rtf", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         return SupportedTypes.Contains(contentType)
             || contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase);
     }

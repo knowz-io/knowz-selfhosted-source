@@ -174,3 +174,89 @@ describe('ConnectionCard', () => {
     expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument()
   })
 })
+
+// ---------- UI_SH_DestinationsPolish : S8 key-kind + host guidance ----------
+describe('ConnectionCard — key-kind and host guidance (S8, VERIFY-SH-7)', () => {
+  // `vi.clearAllMocks()` clears calls but keeps implementations, so both test
+  // doubles are re-seeded per test to stop an Unauthorized result leaking forward.
+  beforeEach(() => {
+    mockTestCandidate.mockResolvedValue({
+      status: 'Ok',
+      message: 'Connection test succeeded.',
+      remoteTenantId: 'abc',
+      schemaVersion: '1.0',
+    })
+    mockTestExisting.mockResolvedValue({
+      status: 'Ok',
+      message: 'Connection is healthy.',
+      remoteTenantId: 'abc',
+      schemaVersion: '1.0',
+    })
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('Should_ExplainPersonalKeyRequirement_UnderTheApiKeyInput', () => {
+    renderWithProviders(<ConnectionCard connection={null} linkCount={0} />)
+    const guidance = screen.getByTestId('api-key-guidance')
+    expect(guidance.textContent).toContain('ukz_')
+    expect(guidance.textContent).toContain('kz_')
+    expect(guidance.textContent).toMatch(/rejected/i)
+    // The existing security note must survive alongside the new guidance.
+    expect(
+      screen.getByText(/API key is never displayed after save/i),
+    ).toBeInTheDocument()
+  })
+
+  it('Should_StateTheAllowlistedHosts_UnderTheUrlInput', () => {
+    renderWithProviders(<ConnectionCard connection={null} linkCount={0} />)
+    const guidance = screen.getByTestId('cloud-url-guidance')
+    expect(guidance.textContent).toContain('https://api.knowz.io')
+    expect(guidance.textContent).toContain('https://api.dev.knowz.io')
+    expect(guidance.textContent).toMatch(/not allowed/i)
+  })
+
+  it('Should_AppendKeyHintToBanner_WhenCandidateTestIsUnauthorized', async () => {
+    const user = userEvent.setup()
+    mockTestCandidate.mockResolvedValue({
+      status: 'Unauthorized',
+      message: 'The API key was rejected.',
+      remoteTenantId: null,
+      schemaVersion: null,
+    })
+    renderWithProviders(<ConnectionCard connection={null} linkCount={0} />)
+    await user.type(screen.getByPlaceholderText('https://api.knowz.io'), 'https://api.knowz.io')
+    await user.type(screen.getByPlaceholderText('ukz_...'), 'kz_tenantkey')
+    await user.click(screen.getByRole('button', { name: /^test$/i }))
+
+    const banner = await screen.findByTestId('connection-banner')
+    expect(banner.textContent).toContain('The API key was rejected.')
+    expect(banner.textContent).toContain('personal ukz_ key')
+  })
+
+  it('Should_AppendKeyHintToBanner_WhenExistingConnectionTestIsUnauthorized', async () => {
+    const user = userEvent.setup()
+    mockTestExisting.mockResolvedValue({
+      status: 'Unauthorized',
+      message: 'The API key was rejected.',
+      remoteTenantId: null,
+      schemaVersion: null,
+    })
+    renderWithProviders(<ConnectionCard connection={connectedDto} linkCount={0} />)
+    await user.click(screen.getByRole('button', { name: /test connection/i }))
+
+    const banner = await screen.findByTestId('connection-banner')
+    expect(banner.textContent).toContain('personal ukz_ key')
+  })
+
+  it('Should_NotAppendKeyHint_WhenTestSucceeds', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ConnectionCard connection={connectedDto} linkCount={0} />)
+    await user.click(screen.getByRole('button', { name: /test connection/i }))
+
+    const banner = await screen.findByTestId('connection-banner')
+    expect(banner.textContent).not.toContain('personal ukz_ key')
+  })
+})

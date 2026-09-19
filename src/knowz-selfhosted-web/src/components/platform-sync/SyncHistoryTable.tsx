@@ -207,7 +207,7 @@ export default function SyncHistoryTable({
 function StatusBadge({ status }: { status: PlatformSyncRunStatus }) {
   const config: Record<
     PlatformSyncRunStatus,
-    { classes: string; icon: React.ReactNode; label: string }
+    { classes: string; icon: React.ReactNode; label: string; title?: string }
   > = {
     InProgress: {
       classes: 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400',
@@ -228,11 +228,15 @@ function StatusBadge({ status }: { status: PlatformSyncRunStatus }) {
       classes: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400',
       icon: <AlertCircle size={11} />,
       label: 'Partial',
+      // UI_DestinationsLiveConnect S9: a partial run is the per-run item cap, not a
+      // half-failure — say so where the badge is read.
+      title: 'Stopped at the 100-item limit; run again to continue',
     },
   }
   const c = config[status]
   return (
     <span
+      title={c.title}
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${c.classes}`}
     >
       {c.icon}

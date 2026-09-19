@@ -42,7 +42,7 @@ const INTERNAL_MARKERS = [
   /\bconnection string\b/i,
 ]
 
-function isSafeDetail(detail: string): boolean {
+export function isSafeDetail(detail: string): boolean {
   if (detail.length === 0 || detail.length > 160) return false
   return !INTERNAL_MARKERS.some((re) => re.test(detail))
 }

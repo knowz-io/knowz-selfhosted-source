@@ -44,7 +44,7 @@ vi.mock('../pages/admin/UsersPage', () => ({ default: () => <div>Users</div> }))
 vi.mock('../pages/admin/AdminSettingsPage', () => ({ default: () => <div>Admin Settings</div> }))
 vi.mock('../pages/admin/SSOSettingsPage', () => ({ default: () => <div>SSO</div> }))
 vi.mock('../pages/admin/AuditLogPage', () => ({ default: () => <div>Audit</div> }))
-vi.mock('../pages/admin/PlatformSyncPage', () => ({ default: () => <div>Platform Sync</div> }))
+vi.mock('../pages/admin/PlatformSyncPage', () => ({ default: () => <div>Destinations page</div> }))
 vi.mock('../pages/SSOCallbackPage', () => ({ default: () => <div>Callback</div> }))
 vi.mock('../pages/OrganizePage', () => ({
   default: () => {
@@ -69,5 +69,15 @@ describe('App organize redirects', () => {
     })
 
     expect(screen.getByText('Organize tab: entities')).toBeInTheDocument()
+  })
+})
+
+describe('App destinations alias', () => {
+  it('Should_LandOnSyncRoute_WhenFriendlyDestinationsAliasUsed', () => {
+    renderWithProviders(<App />, {
+      initialEntries: ['/destinations'],
+    })
+
+    expect(screen.getByText('Destinations page')).toBeInTheDocument()
   })
 })

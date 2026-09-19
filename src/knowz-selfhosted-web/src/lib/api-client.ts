@@ -71,6 +71,8 @@ import type {
   PlatformKnowledgeListDto,
   PlatformKnowledgeDetailDto,
   SyncItemResult,
+  SyncDirection,
+  VaultSyncResult,
   VaultSyncStatusDto,
   PlatformSyncRunDto,
 } from './types'
@@ -1006,8 +1008,8 @@ export const api = {
       method: 'DELETE',
     }),
 
-  runSyncLink: (localVaultId: string, direction: 'Full' | 'PullOnly' | 'PushOnly' = 'Full') =>
-    request<unknown>(`/api/v1/sync/run/${localVaultId}`, {
+  runSyncLink: (localVaultId: string, direction: SyncDirection = 'Full') =>
+    request<VaultSyncResult>(`/api/v1/sync/run/${localVaultId}`, {
       method: 'POST',
       body: JSON.stringify({ direction }),
     }),

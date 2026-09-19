@@ -1,3 +1,4 @@
+using Knowz.Core.Configuration;
 using Knowz.Core.Interfaces;
 using Knowz.SelfHosted.Application.Interfaces;
 using Knowz.SelfHosted.Application.Services;
@@ -7,7 +8,9 @@ using Knowz.SelfHosted.Infrastructure.Data;
 using Knowz.SelfHosted.Infrastructure.Interfaces;
 using Knowz.SelfHosted.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace Knowz.SelfHosted.Application.Extensions;
 
@@ -65,8 +68,11 @@ public static class ApplicationServiceExtensions
         services.AddScoped<FileSyncService>();
 
         // Content extraction — composite pattern (routes by content type)
-        // Order: AI-powered extractors first (they return CanExtract=false when NoOp),
+        // Order: local-first (anydoc), then AI-powered (they return CanExtract=false when NoOp),
         // then native fallbacks (PdfPig, OpenXML)
+        // NodeID SH_AnydocContentExtractor (R7/R9): options are bound here so the extractor and the
+        // composite ordering can both read Anydoc:* without an IConfiguration parameter on this method.
+        services.AddScoped<AnydocContentExtractor>();
         services.AddScoped<TextFileContentExtractor>();
         services.AddScoped<PdfContentExtractor>();
         services.AddScoped<DocxContentExtractor>();
@@ -75,30 +81,7 @@ public static class ApplicationServiceExtensions
         services.AddScoped<ImageContentExtractor>();
         // DocumentIntelligenceContentExtractor is registered by AddDocumentIntelligence()
 
-        services.AddScoped<IFileContentExtractor>(sp =>
-        {
-            var extractors = new List<IFileContentExtractor>
-            {
-                sp.GetRequiredService<TextFileContentExtractor>(),       // text/* — always first, fastest
-            };
-
-            // AI-powered extractors go before native fallbacks.
-            // Their CanExtract returns false when provider is NoOp,
-            // so CompositeContentExtractor falls through to native extractors.
-            var diExtractor = sp.GetService<DocumentIntelligenceContentExtractor>();
-            if (diExtractor != null)
-                extractors.Add(diExtractor);                             // AI-powered doc extraction (PDF, images via DocIntel)
-
-            extractors.Add(sp.GetRequiredService<ImageContentExtractor>());  // AI-powered vision analysis
-
-            // Native fallbacks
-            extractors.Add(sp.GetRequiredService<PdfContentExtractor>());    // Native PDF fallback (PdfPig)
-            extractors.Add(sp.GetRequiredService<DocxContentExtractor>());   // Native DOCX fallback (OpenXML)
-            extractors.Add(sp.GetRequiredService<ExcelContentExtractor>());
-            extractors.Add(sp.GetRequiredService<PowerPointContentExtractor>());
-
-            return new CompositeContentExtractor(extractors);
-        });
+        AddContentExtractionComposite(services);
 
         // Enrichment outbox writer
         services.AddScoped<IEnrichmentOutboxWriter, EnrichmentOutboxWriter>();
@@ -130,5 +113,57 @@ public static class ApplicationServiceExtensions
         services.AddScoped<CommitRelinkService>();
 
         return services;
+    }
+
+    /// <summary>
+    /// Registers the ordered <see cref="IFileContentExtractor"/> composite. Extracted so the DI-ordering
+    /// wiring test exercises the SAME factory production uses instead of a copy.
+    /// NodeID: SH_AnydocContentExtractor (R7).
+    /// </summary>
+    internal static void AddContentExtractionComposite(IServiceCollection services)
+    {
+        services.TryAddSingleton<IOptions<AnydocOptions>>(sp =>
+        {
+            var options = new AnydocOptions();
+            sp.GetRequiredService<IConfiguration>().GetSection(AnydocOptions.SectionName).Bind(options);
+            return Microsoft.Extensions.Options.Options.Create(options);
+        });
+
+        services.AddScoped<IFileContentExtractor>(sp =>
+        {
+            var extractors = new List<IFileContentExtractor>
+            {
+                sp.GetRequiredService<TextFileContentExtractor>(),       // text/* — always first, fastest
+            };
+
+            // Local-first markdown conversion via the anydoc CLI. CanExtract is false when the binary
+            // is absent, so the chain below is byte-identical to a host without anydoc.
+            // Anydoc:Mode — PreferLocal (default) here, FallbackOnly after DocIntelligence, Off omits it.
+            var anydocMode = sp.GetRequiredService<IOptions<AnydocOptions>>().Value.Mode;
+            var anydocPreferLocal = !string.Equals(anydocMode, "FallbackOnly", StringComparison.OrdinalIgnoreCase);
+            var anydocOff = string.Equals(anydocMode, "Off", StringComparison.OrdinalIgnoreCase);
+            if (!anydocOff && anydocPreferLocal)
+                extractors.Add(sp.GetRequiredService<AnydocContentExtractor>());
+
+            // AI-powered extractors go before native fallbacks.
+            // Their CanExtract returns false when provider is NoOp,
+            // so CompositeContentExtractor falls through to native extractors.
+            var diExtractor = sp.GetService<DocumentIntelligenceContentExtractor>();
+            if (diExtractor != null)
+                extractors.Add(diExtractor);                             // AI-powered doc extraction (PDF, images via DocIntel)
+
+            if (!anydocOff && !anydocPreferLocal)
+                extractors.Add(sp.GetRequiredService<AnydocContentExtractor>());  // Anydoc:Mode=FallbackOnly
+
+            extractors.Add(sp.GetRequiredService<ImageContentExtractor>());  // AI-powered vision analysis
+
+            // Native fallbacks
+            extractors.Add(sp.GetRequiredService<PdfContentExtractor>());    // Native PDF fallback (PdfPig)
+            extractors.Add(sp.GetRequiredService<DocxContentExtractor>());   // Native DOCX fallback (OpenXML)
+            extractors.Add(sp.GetRequiredService<ExcelContentExtractor>());
+            extractors.Add(sp.GetRequiredService<PowerPointContentExtractor>());
+
+            return new CompositeContentExtractor(extractors);
+        });
     }
 }

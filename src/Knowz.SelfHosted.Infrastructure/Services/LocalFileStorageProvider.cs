@@ -104,8 +104,24 @@ public class LocalFileStorageProvider : IFileStorageProvider
         var filePath = Path.Combine(tenantDir, $"{fileRecordId:N}{ext}");
         ValidatePath(filePath);
 
-        await using var fileStream = File.Create(filePath);
-        await stream.CopyToAsync(fileStream, ct).ConfigureAwait(false);
+        // Keep the previous binary intact until the entire incoming stream has been received.
+        // Temporary names cannot match FindFile's file-ID lookup pattern.
+        var temporaryPath = Path.Combine(tenantDir, $".upload-{Guid.NewGuid():N}");
+        try
+        {
+            await using (var fileStream = File.Create(temporaryPath))
+                await stream.CopyToAsync(fileStream, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            File.Move(temporaryPath, filePath, overwrite: true);
+            // A MIME change changes the extension; do not leave an older sibling readable.
+            foreach (var previous in Directory.EnumerateFiles(tenantDir, $"{fileRecordId:N}.*"))
+                if (!string.Equals(previous, filePath, StringComparison.Ordinal))
+                    File.Delete(previous);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
 
         _logger.LogInformation("Uploaded file to {FilePath} ({ContentType})", filePath, contentType);
         return $"file:///{filePath.Replace('\\', '/')}";

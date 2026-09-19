@@ -74,15 +74,29 @@ describe('PlatformSyncPage', () => {
     vi.clearAllMocks()
   })
 
-  it('Should_RenderPageHeader_WhenMounted', async () => {
+  it('Should_RenderDestinationsHeading_WhenMounted', async () => {
     renderWithProviders(<PlatformSyncPage />)
-    expect(screen.getAllByText('Connect to Knowz Cloud').length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { level: 1, name: 'Destinations' })).toBeInTheDocument()
+  })
+
+  it('Should_RenderManualOnlySubtitle_WhenMounted', async () => {
+    renderWithProviders(<PlatformSyncPage />)
+    expect(screen.getByText(/Nothing syncs automatically/)).toBeInTheDocument()
+  })
+
+  it('Should_RenderSecondaryFilePlaneCard_LinkingToDataTab', async () => {
+    renderWithProviders(<PlatformSyncPage />)
+    expect(
+      screen.getByRole('heading', { name: 'File export / import' }),
+    ).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /file export \/ import/i })
+    expect(link).toHaveAttribute('href', '/settings?tab=data')
   })
 
   it('Should_RenderConnectionCard_WithHeader', async () => {
     renderWithProviders(<PlatformSyncPage />)
     await waitFor(() => {
-      expect(screen.getAllByText('Connect to Knowz Cloud').length).toBeGreaterThan(0)
+      expect(screen.getByRole('heading', { name: 'Connection' })).toBeInTheDocument()
     })
   })
 

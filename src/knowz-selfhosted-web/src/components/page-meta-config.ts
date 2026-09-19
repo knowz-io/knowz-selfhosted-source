@@ -33,11 +33,12 @@ export const pageRegistry: ReadonlyArray<PageRegistryEntry> = Object.freeze<Page
     },
   },
   {
-    match: (p) => p === '/sync' || p.startsWith('/admin/platform-sync'),
+    match: (p) =>
+      p === '/sync' || p === '/destinations' || p.startsWith('/admin/platform-sync'),
     meta: {
       section: 'Control',
-      title: 'Connect to Knowz Cloud',
-      description: 'Connect an API key and sync vaults with your Knowz Cloud account.',
+      title: 'Destinations',
+      description: 'Connect a Knowz Cloud destination and run manual pull, push, or full syncs.',
     },
   },
   {
@@ -120,7 +121,8 @@ export const PRODUCT_NAME = 'Knowz Self-Hosted'
  */
 const PAGE_META_SUPPRESSED_MATCHERS: ReadonlyArray<(p: string) => boolean> = Object.freeze([
   (p: string) => p.startsWith('/chat'),
-  (p: string) => p === '/sync' || p.startsWith('/admin/platform-sync'),
+  (p: string) =>
+    p === '/sync' || p === '/destinations' || p.startsWith('/admin/platform-sync'),
   (p: string) => p.startsWith('/admin'),
 ])
 

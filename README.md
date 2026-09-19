@@ -57,9 +57,11 @@ It is not a copy of Knowz Cloud. There is no public sign-up — the installer cr
 - **Data portability** — full import and export in standard formats
 - **API-first** — REST API with per-user API keys
 - **Enrichment** — automatic extraction, chunking, entity extraction, and summarization when an AI provider is configured
-- **Connect to Knowz Cloud** — optional; link this instance to a Knowz Cloud account to browse and pull your cloud knowledge
+- **Destinations (Connect to Knowz Cloud)** — optional; link this instance to a Knowz Cloud account to browse, pull, and push vault knowledge on demand (no automatic sync)
 
 **Optional integrations.** Azure OpenAI, Azure Blob Storage, and Azure AI Search can be configured if you already run them; none is required. The default stack is PostgreSQL + pgvector with local file storage and an OpenAI-compatible endpoint (or no AI provider at all).
+
+**Hosted OCR egress (off by default).** anydoc has no local OCR. When `Anydoc:Ocr=hosted` is set (env `Anydoc__Ocr=hosted`), a PDF whose pages need OCR is retried once through Firecrawl's hosted Parse API and therefore **leaves the machine**. The optional `Firecrawl:ApiKey` / `Firecrawl:ApiUrl` settings (env `Firecrawl__ApiKey` / `Firecrawl__ApiUrl`) are passed only through the child process environment, never argv. An inherited `FIRECRAWL_API_KEY` / `FIRECRAWL_API_URL` also works; without a key the explicit hosted retry is keyless, and the default URL is `https://api.firecrawl.dev`. Leave hosted OCR disabled to keep document handling fully local.
 
 ## Architecture
 
@@ -270,7 +272,7 @@ Or use the helper script:
 
 ## API Reference
 
-The API exposes the 20 endpoint groups listed below. Swagger is off in the shipped configuration; set `ENABLE_SWAGGER=true` to serve `/swagger` for local debug.
+The API exposes the 21 endpoint groups listed below. Swagger is off in the shipped configuration; set `ENABLE_SWAGGER=true` to serve `/swagger` for local debug.
 
 | Group | Prefix | Description |
 |-------|--------|-------------|
@@ -289,6 +291,7 @@ The API exposes the 20 endpoint groups listed below. Swagger is off in the shipp
 | Comments | `/api/v1/comments` | Knowledge item comments |
 | Inbox | `/api/v1/inbox` | Staging area for new items |
 | Portability | `/api/v1/portability` | Import/export data |
+| Destinations | `/api/v1/sync` | Knowz Cloud connection, vault links, manual pull/push runs, history |
 | Config | `/api/v1/config` | Runtime configuration |
 | SSO | `/api/v1/sso` | SSO/OIDC configuration |
 | Admin | `/api/v1/admin` | Admin operations |
@@ -431,7 +434,7 @@ See [Configuration Reference](docs/CONFIGURATION.md) for setup instructions.
 
 When an AI provider is configured, the enrichment pipeline automatically processes new knowledge items:
 
-1. **Content Extraction** -- PDF, DOCX, and text files parsed to plain text
+1. **Content Extraction** -- PDF, DOCX, XLSX, PPTX, legacy DOC/XLS/PPT, ODT/ODS/ODP, RTF, EPUB and text files parsed to plain text or markdown locally (via the bundled `anydoc` CLI); no cloud call required
 2. **Chunking** -- Content split into overlapping chunks for embedding
 3. **Entity Extraction** -- AI identifies people, places, organizations, concepts
 4. **Summarization** -- AI generates concise summaries

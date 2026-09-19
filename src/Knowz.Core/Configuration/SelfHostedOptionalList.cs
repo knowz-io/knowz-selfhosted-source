@@ -26,5 +26,6 @@ public static class SelfHostedOptionalList
     [
         "IAttachmentAIProvider",                 // Requires Azure AI Vision / Document Intelligence
         "DocumentIntelligenceContentExtractor",  // Requires Azure Document Intelligence
+        "AnydocContentExtractor",                // Requires the local anydoc CLI (declines when absent)
     ];
 }

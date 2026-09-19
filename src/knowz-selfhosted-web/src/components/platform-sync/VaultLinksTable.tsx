@@ -11,12 +11,35 @@ import {
   CheckCircle2,
   XCircle,
   HelpCircle,
+  X,
 } from 'lucide-react'
 import { api, ApiError } from '../../lib/api-client'
-import type { VaultSyncStatusDto } from '../../lib/types'
+import type { SyncDirection, VaultSyncResult, VaultSyncStatusDto } from '../../lib/types'
+import { isSafeDetail, toUserError } from '../../lib/toUserError'
 import { useFormatters } from '../../hooks/useFormatters'
 
-type SyncDirection = 'Full' | 'PullOnly' | 'PushOnly'
+/**
+ * UI_DestinationsLiveConnect S5 — the outcome of the most recent manual run.
+ * `result` carries a server-reported run (including a capped/partial one);
+ * `error` carries a run that never produced a body.
+ */
+type RunBanner =
+  | { kind: 'result'; result: VaultSyncResult }
+  | { kind: 'error'; tone: 'red' | 'amber'; message: string }
+
+/** S6 — the server-side limits, stated before the operator clicks. */
+const ITEMS_PER_RUN = 100
+const RUNS_PER_HOUR = 10
+
+/**
+ * The orchestrator's catch-all assigns `ex.Message` to `error`, so a server sentence
+ * is only shown when it is already product-shaped.
+ */
+const RUN_FAILED = 'The run did not complete.'
+
+/** HTTP statuses the run endpoint uses to mean something specific. */
+const RUN_REFUSED = 422
+const RATE_LIMITED = 429
 
 interface VaultLinksTableProps {
   links: VaultSyncStatusDto[]
@@ -35,6 +58,7 @@ export default function VaultLinksTable({
   const [busyLinkId, setBusyLinkId] = useState<string | null>(null)
   const [busyDirection, setBusyDirection] = useState<SyncDirection | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [runBanner, setRunBanner] = useState<RunBanner | null>(null)
 
   const runMutation = useMutation({
     mutationFn: ({ localVaultId, direction }: { localVaultId: string; direction: SyncDirection }) =>
@@ -43,13 +67,21 @@ export default function VaultLinksTable({
       setBusyLinkId(localVaultId)
       setBusyDirection(direction)
       setError(null)
+      setRunBanner(null)
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      // The server answers 200 with the same shape on a refused run, so trust
+      // `success` rather than the status code alone.
+      setRunBanner(
+        result.success
+          ? { kind: 'result', result }
+          : { kind: 'error', tone: 'red', message: safeServerSentence(result.error) },
+      )
       queryClient.invalidateQueries({ queryKey: ['platform-sync', 'links'] })
       queryClient.invalidateQueries({ queryKey: ['platform-sync', 'history'] })
     },
     onError: (err) => {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Run sync failed')
+      setRunBanner({ kind: 'error', ...describeRunFailure(err) })
     },
     onSettled: () => {
       setBusyLinkId(null)
@@ -62,6 +94,7 @@ export default function VaultLinksTable({
     onMutate: (id) => {
       setBusyLinkId(id)
       setError(null)
+      setRunBanner(null)
     },
     onSuccess: () => {
       setConfirmDeleteId(null)
@@ -90,6 +123,15 @@ export default function VaultLinksTable({
           Browse Knowz Cloud
         </button>
       </div>
+
+      <p data-testid="sync-caps-helper" className="px-5 pt-3 text-xs text-muted-foreground">
+        Manual runs only · up to {ITEMS_PER_RUN} items per run · {RUNS_PER_HOUR} runs per
+        hour on this instance.
+      </p>
+
+      {runBanner && (
+        <RunResultBanner banner={runBanner} onDismiss={() => setRunBanner(null)} />
+      )}
 
       {error && (
         <div className="mx-5 mt-3 px-3 py-2 rounded-md bg-red-50 dark:bg-red-950/30 text-red-800 dark:text-red-300 text-sm flex items-start gap-2">
@@ -127,6 +169,10 @@ export default function VaultLinksTable({
             <tbody className="divide-y divide-border">
               {links.map((link) => {
                 const isBusy = busyLinkId === link.localVaultId
+                // The server allows one run per tenant, so every row's run actions
+                // are unavailable while any run is in flight — only the spinner is
+                // per-row. Without this, a second click just earns a 429.
+                const runsLocked = runMutation.isPending
                 return (
                   <tr key={link.linkId} className="hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-2.5 font-medium">{link.localVaultName}</td>
@@ -159,9 +205,9 @@ export default function VaultLinksTable({
                                 direction: 'PullOnly',
                               })
                             }
-                            disabled={isBusy}
+                            disabled={isBusy || runsLocked}
                             className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 border-r border-input"
-                            title="Pull from platform (one-way: remote → local)"
+                            title="Pull: Knowz Cloud → this instance"
                           >
                             {isBusy && busyDirection === 'PullOnly' ? (
                               <Loader2 size={12} className="animate-spin" />
@@ -177,9 +223,9 @@ export default function VaultLinksTable({
                                 direction: 'PushOnly',
                               })
                             }
-                            disabled={isBusy}
+                            disabled={isBusy || runsLocked}
                             className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 border-r border-input"
-                            title="Push to platform (one-way: local → remote)"
+                            title="Push: this instance → Knowz Cloud"
                           >
                             {isBusy && busyDirection === 'PushOnly' ? (
                               <Loader2 size={12} className="animate-spin" />
@@ -195,9 +241,9 @@ export default function VaultLinksTable({
                                 direction: 'Full',
                               })
                             }
-                            disabled={isBusy}
+                            disabled={isBusy || runsLocked}
                             className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50"
-                            title="Full bidirectional sync"
+                            title="Full: pull then push"
                           >
                             {isBusy && busyDirection === 'Full' ? (
                               <Loader2 size={12} className="animate-spin" />
@@ -282,9 +328,9 @@ function DeleteLinkConfirmModal({
           </div>
           <h3 className="text-lg font-semibold">Remove Sync Link?</h3>
         </div>
-        <p className="text-sm text-muted-foreground mb-6">
-          The vault on this instance will no longer sync with the Knowz Cloud vault. Local data is not
-          deleted, but future automatic pulls will stop.
+        <p data-testid="remove-link-body" className="text-sm text-muted-foreground mb-6">
+          The vault on this instance will no longer sync with the Knowz Cloud vault. Local
+          data is not deleted. You can link the vault again later.
         </p>
         <div className="flex justify-end gap-3">
           <button
@@ -304,6 +350,127 @@ function DeleteLinkConfirmModal({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * S5 — one honest sentence of counts, with the half that does not apply to the
+ * chosen direction omitted.
+ */
+function formatRunCounts(result: VaultSyncResult): string {
+  const parts: string[] = []
+  if (result.direction !== 'PushOnly') {
+    parts.push(`Pull: ${result.pullAccepted} accepted, ${result.pullSkipped} skipped`)
+  }
+  if (result.direction !== 'PullOnly') {
+    parts.push(`Push: ${result.pushAccepted} accepted, ${result.pushSkipped} skipped`)
+  }
+  return parts.join(' · ')
+}
+
+/**
+ * S5 — the two failure shapes the run endpoint can produce carry copy the generic
+ * error mapper cannot express: 422 returns a server sentence worth showing, and
+ * 429 names one of the limiter's reasons (see `describeRateLimit`), not a generic throttle.
+ */
+function describeRunFailure(err: unknown): { tone: 'red' | 'amber'; message: string } {
+  if (err instanceof ApiError) {
+    if (err.status === RATE_LIMITED) {
+      return { tone: 'amber', message: describeRateLimit(err.message) }
+    }
+    if (err.status === RUN_REFUSED) {
+      return { tone: 'red', message: safeServerSentence(err.message) }
+    }
+  }
+  return { tone: 'red', message: toUserError(err) }
+}
+
+/**
+ * A 429 has three distinct causes and the `reason` field never reaches the client, so
+ * the server sentence is the only discriminator. Naming the hourly budget when the real
+ * cause was a concurrent run would be untrue at the exact moment the operator reads it.
+ */
+function describeRateLimit(message: string): string {
+  if (/already in progress/i.test(message)) {
+    return 'Another sync is already running on this instance. Wait for it to finish and try again.'
+  }
+  if (/per hour/i.test(message)) {
+    return `This instance allows ${RUNS_PER_HOUR} sync runs per hour. Wait a moment and try again.`
+  }
+  // Any other 429 sentence is product-shaped today; a body-less proxy 429 would surface
+  // the client's own `Request failed…` text, so filter before echoing.
+  return message && isSafeDetail(message) && !/^Request failed/i.test(message)
+    ? message
+    : 'This instance refused the run for now. Wait a moment and try again.'
+}
+
+/** Server text reaches the operator only when it is not machine internals. */
+function safeServerSentence(message: string | null): string {
+  return message && isSafeDetail(message) ? message : RUN_FAILED
+}
+
+const BANNER_TONES: Record<'green' | 'amber' | 'red', string> = {
+  green:
+    'bg-green-50 dark:bg-green-950/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-900',
+  amber:
+    'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-900',
+  red: 'bg-red-50 dark:bg-red-950/30 text-red-800 dark:text-red-300 border-red-200 dark:border-red-900',
+}
+
+function RunResultBanner({
+  banner,
+  onDismiss,
+}: {
+  banner: RunBanner
+  onDismiss: () => void
+}) {
+  const isPartial = banner.kind === 'result' && banner.result.partial
+  const tone: 'green' | 'amber' | 'red' =
+    banner.kind === 'error' ? banner.tone : isPartial ? 'amber' : 'green'
+  const Icon = tone === 'green' ? CheckCircle2 : tone === 'amber' ? AlertTriangle : XCircle
+
+  return (
+    <div
+      data-testid="sync-run-banner"
+      role={tone === 'red' ? 'alert' : 'status'}
+      className={`mx-5 mt-3 px-3 py-2 rounded-md border text-sm flex items-start gap-2 ${BANNER_TONES[tone]}`}
+    >
+      <Icon size={14} className="mt-0.5 shrink-0" />
+      <div className="flex-1 space-y-1">
+        {banner.kind === 'error' ? (
+          <p>{banner.message}</p>
+        ) : (
+          <>
+            {isPartial && (
+              <p className="font-medium">
+                Stopped at the {ITEMS_PER_RUN}-item limit. Run again to continue from where
+                it left off.
+              </p>
+            )}
+            <p>{formatRunCounts(banner.result)}</p>
+            {banner.result.details.length > 0 && (
+              <details className="text-xs">
+                <summary className="cursor-pointer">
+                  Details ({banner.result.details.length})
+                </summary>
+                <ul className="mt-1 space-y-0.5 list-disc list-inside">
+                  {banner.result.details.map((detail, i) => (
+                    <li key={`${i}-${detail}`}>{detail}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </>
+        )}
+      </div>
+      <button
+        onClick={onDismiss}
+        className="p-0.5 opacity-70 hover:opacity-100"
+        aria-label="Dismiss"
+      >
+        <X size={14} />
+      </button>
     </div>
   )
 }

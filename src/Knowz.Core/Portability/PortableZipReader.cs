@@ -21,12 +21,18 @@ public static class PortableZipReader
 
         ValidateSecurity(archive);
 
-        if (IsLegacyFormat(archive))
+        try
         {
-            return ReadLegacyFormat(archive, options);
+            var package = IsLegacyFormat(archive)
+                ? ReadLegacyFormat(archive, options)
+                : ReadPerItemFormat(archive, options);
+            ValidatePackage(package);
+            return package;
         }
-
-        return ReadPerItemFormat(archive, options);
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
+        {
+            throw new PortableZipSecurityException($"Invalid portable ZIP package: {ex.Message}");
+        }
     }
 
     private static void ValidateSecurity(ZipArchive archive)
@@ -40,8 +46,11 @@ public static class PortableZipReader
         long totalDecompressed = 0;
         long totalCompressed = 0;
 
+        var entryNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var entry in archive.Entries)
         {
+            if (!entryNames.Add(entry.FullName))
+                throw new PortableZipSecurityException($"Duplicate ZIP entry: {entry.FullName}.");
             if (entry.FullName.Contains("..") ||
                 entry.FullName.StartsWith('/') ||
                 entry.FullName.StartsWith('\\') ||
@@ -61,7 +70,9 @@ public static class PortableZipReader
                 $"Archive decompressed size ({totalDecompressed} bytes) exceeds the maximum of {MaxDecompressedSize} bytes.");
         }
 
-        if (totalCompressed > 0 && (double)totalDecompressed / totalCompressed > MaxDecompressionRatio)
+        // Small highly compressible exports are normal. Apply the ratio guard only after
+        // a bounded 100 MiB expansion, while retaining the absolute cap for every archive.
+        if (totalDecompressed > 100L * 1024 * 1024 && totalCompressed > 0 && (double)totalDecompressed / totalCompressed > MaxDecompressionRatio)
         {
             throw new PortableZipSecurityException(
                 $"Archive decompression ratio ({(double)totalDecompressed / totalCompressed:F1}:1) exceeds the maximum of {MaxDecompressionRatio}:1.");
@@ -82,15 +93,21 @@ public static class PortableZipReader
         var entry = archive.GetEntry("manifest.json")
             ?? throw new InvalidOperationException("Legacy format detected but manifest.json not found.");
 
-        using var stream = entry.Open();
-        var package = JsonSerializer.Deserialize<PortableExportPackage>(stream, options)
-            ?? throw new InvalidOperationException("Failed to deserialize legacy manifest.json.");
+        var manifest = ReadJsonEntryDirect<JsonElement>(entry, options);
+        RequireManifest(manifest, legacy: true);
+        var package = manifest.Deserialize<PortableExportPackage>(options)
+            ?? throw new PortableZipSecurityException("Invalid legacy manifest.json.");
 
         return package;
     }
 
     private static PortableExportPackage ReadPerItemFormat(ZipArchive archive, JsonSerializerOptions options)
     {
+        var manifestEntry = archive.GetEntry("_manifest.json")
+            ?? throw new PortableZipSecurityException("Portable ZIP is missing _manifest.json or manifest.json.");
+        var manifest = ReadJsonEntryDirect<JsonElement>(manifestEntry, options);
+        RequireManifest(manifest, legacy: false);
+
         var vaults = ReadJsonEntry<List<PortableVault>>(archive, "_vaults.json", options) ?? new();
         var persons = ReadJsonEntry<List<PortablePerson>>(archive, "_persons.json", options) ?? new();
         var tags = ReadJsonEntry<List<PortableTag>>(archive, "_tags.json", options) ?? new();
@@ -100,11 +117,18 @@ public static class PortableZipReader
         var inboxItems = ReadJsonEntry<List<PortableInboxItem>>(archive, "_inbox.json", options) ?? new();
 
         var knowledgeItems = new List<PortableKnowledge>();
-        var allComments = new List<PortableKnowledgeComment>();
+        var allComments = ReadJsonEntry<List<PortableKnowledgeComment>>(archive, "_orphan-comments.json", options) ?? new();
+        var archives = ReadJsonEntry<Dictionary<string, List<JsonElement>>>(archive, "_archives.json", options) ?? new();
         var allFileRecords = new List<PortableFileRecord>();
 
         foreach (var entry in archive.Entries)
         {
+            if (entry.FullName == "_vault-files.json")
+            {
+                var vaultScoped = ReadJsonEntryDirect<List<PortableFileRecord>>(entry, options);
+                if (vaultScoped != null) allFileRecords.AddRange(vaultScoped);
+                continue;
+            }
             if (!entry.FullName.StartsWith("items/")) continue;
             var fileName = entry.FullName["items/".Length..];
 
@@ -124,11 +148,6 @@ public static class PortableZipReader
                 if (knowledge != null) knowledgeItems.Add(knowledge);
             }
         }
-
-        var manifestEntry = archive.GetEntry("_manifest.json");
-        JsonElement? manifest = manifestEntry != null
-            ? ReadJsonEntryDirect<JsonElement>(manifestEntry, options)
-            : null;
 
         ExportScope? scope = null;
         var sourceEdition = "platform";
@@ -173,6 +192,7 @@ public static class PortableZipReader
                 TotalInboxItems = inboxItems.Count,
                 TotalComments = allComments.Count,
                 TotalFileRecords = allFileRecords.Count,
+                TotalArchiveTypes = archives.Count,
             },
             Data = new PortableExportData
             {
@@ -186,8 +206,64 @@ public static class PortableZipReader
                 InboxItems = inboxItems,
                 Comments = allComments,
                 FileRecords = allFileRecords,
+                Archives = archives,
             }
         };
+    }
+
+    private static void RequireManifest(JsonElement manifest, bool legacy)
+    {
+        if (manifest.ValueKind != JsonValueKind.Object ||
+            !manifest.TryGetProperty("schemaVersion", out var schema) ||
+            schema.ValueKind != JsonValueKind.Number || !schema.TryGetInt32(out var version) || version < 1)
+            throw new PortableZipSecurityException("Portable ZIP manifest requires a positive schemaVersion.");
+        if (legacy)
+        {
+            if (!manifest.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+                throw new PortableZipSecurityException("Legacy portable ZIP manifest requires a data object.");
+        }
+        else if (!manifest.TryGetProperty("formatVersion", out var format) ||
+            format.ValueKind != JsonValueKind.Number || !format.TryGetInt32(out var formatVersion) || formatVersion != 1)
+            throw new PortableZipSecurityException("Unsupported or missing portable ZIP formatVersion; expected 1.");
+    }
+
+    /// <summary>Validate collection structure before callers perform any import side effects.</summary>
+    public static void ValidatePackage(PortableExportPackage package)
+    {
+        if (package?.Data == null || package.Metadata == null)
+            throw new PortableZipSecurityException("Portable package requires data and metadata objects.");
+        var data = package.Data;
+        ValidateEntities(data.Vaults, v => v.Id, "vaults");
+        ValidateEntities(data.KnowledgeItems, v => v.Id, "knowledge items");
+        ValidateEntities(data.Topics, v => v.Id, "topics");
+        ValidateEntities(data.Tags, v => v.Id, "tags");
+        ValidateEntities(data.Persons, v => v.Id, "persons");
+        ValidateEntities(data.Locations, v => v.Id, "locations");
+        ValidateEntities(data.Events, v => v.Id, "events");
+        ValidateEntities(data.InboxItems, v => v.Id, "inbox items");
+        ValidateEntities(data.Comments, v => v.Id, "comments");
+        ValidateEntities(data.FileRecords, v => v.Id, "files");
+        if (data.Archives == null || data.Archives.Values.Any(entries => entries == null || entries.Any(e => e.ValueKind != JsonValueKind.Object)))
+            throw new PortableZipSecurityException("Portable archives must contain arrays of entity objects.");
+        if (data.FileRecords.Any(f => f.Attachments == null || f.Attachments.Any(a => a == null)))
+            throw new PortableZipSecurityException("Portable file attachments must be arrays of objects.");
+        if (data.Vaults.Any(v => v.PersonIds == null) || data.KnowledgeItems.Any(k =>
+            k.VaultIds == null || k.TagIds == null || k.PersonIds == null || k.LocationIds == null || k.EventIds == null))
+            throw new PortableZipSecurityException("Portable relationship ID collections must be arrays.");
+        if (data.KnowledgeItems.Any(k => k.PersonLinks?.Any(l => l == null) == true ||
+            k.LocationLinks?.Any(l => l == null) == true || k.EventLinks?.Any(l => l == null) == true ||
+            k.Relationships?.Any(l => l == null) == true))
+            throw new PortableZipSecurityException("Portable relationship links must not contain null entries.");
+
+    }
+
+    private static void ValidateEntities<T>(IEnumerable<T>? entries, Func<T, Guid> id, string label)
+    {
+        if (entries == null) throw new PortableZipSecurityException($"Portable {label} must be an array.");
+        var ids = new HashSet<Guid>();
+        foreach (var entry in entries)
+            if (entry == null || !ids.Add(id(entry)))
+                throw new PortableZipSecurityException($"Portable {label} contains a null entity or duplicate ID.");
     }
 
     private static T? ReadJsonEntry<T>(ZipArchive archive, string entryName, JsonSerializerOptions options)
@@ -200,7 +276,8 @@ public static class PortableZipReader
     private static T? ReadJsonEntryDirect<T>(ZipArchiveEntry entry, JsonSerializerOptions options)
     {
         using var stream = entry.Open();
-        return JsonSerializer.Deserialize<T>(stream, options);
+        return JsonSerializer.Deserialize<T>(stream, options)
+            ?? throw new PortableZipSecurityException($"ZIP entry '{entry.FullName}' must not be null.");
     }
 }
 
