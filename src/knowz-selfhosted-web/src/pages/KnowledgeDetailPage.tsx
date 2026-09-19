@@ -510,7 +510,7 @@ export default function KnowledgeDetailPage() {
                         <p className="text-sm font-medium">Encrypted — unlock with your key</p>
                         <p className="text-sm text-muted-foreground">
                           This item was pulled from Knowz as ciphertext. It is not shown as markdown.
-                          Open Connect to Knowz Cloud after unlocking locally with your key file.
+                          Open Destinations after unlocking locally with your key file.
                         </p>
                         <Link to="/unlock" className="text-sm text-primary underline">
                           Unlock locally

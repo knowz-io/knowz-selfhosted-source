@@ -11,6 +11,7 @@ import {
   Info,
   FileArchive,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api-client'
 import SurfaceCard from '../components/ui/SurfaceCard'
 
@@ -161,15 +162,22 @@ export default function DataPortabilityPage() {
 
   return (
     <div className="space-y-4 max-w-2xl">
-      {/* Schema info */}
-      {schema && (
-        <SurfaceCard className="border-blue-200/90 bg-blue-50/80 px-3 py-2 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-300">
-          <div className="flex items-center gap-2">
-            <Info size={16} className="shrink-0" />
-            <span>{schema.compatibility}</span>
+      {/* Schema info + pointer to the live plane */}
+      <SurfaceCard className="border-blue-200/90 bg-blue-50/80 px-3 py-2 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-300">
+        <div className="flex items-start gap-2">
+          <Info size={16} className="mt-0.5 shrink-0" />
+          <div className="space-y-1">
+            {schema && <p>{schema.compatibility}</p>}
+            <p>
+              Need live push/pull between instances?{' '}
+              <Link to="/sync" className="font-medium underline">
+                Use Destinations
+              </Link>
+              .
+            </p>
           </div>
-        </SurfaceCard>
-      )}
+        </div>
+      </SurfaceCard>
 
       {/* Export section */}
       <SurfaceCard className="p-5">

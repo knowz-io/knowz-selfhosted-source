@@ -536,12 +536,12 @@ public class PortabilityV2Tests : IDisposable
         };
         await _importSvc.ImportAsync(package);
 
-        // Second import with different data
+        // Explicit overwrite replaces the matching archived entity while retaining unrelated records.
         package.Data.Archives["TestEntity"] = new List<JsonElement>
         {
-            JsonSerializer.Deserialize<JsonElement>("{\"Id\":\"00000000-0000-0000-0000-000000000002\",\"V\":2}")
+            JsonSerializer.Deserialize<JsonElement>("{\"Id\":\"00000000-0000-0000-0000-000000000001\",\"V\":2}")
         };
-        await _importSvc.ImportAsync(package);
+        await _importSvc.ImportAsync(package, ImportConflictStrategy.Overwrite);
 
         var archives = await _db.PortableArchives.Where(a => a.TenantId == TenantId).ToListAsync();
         Assert.Single(archives); // Replaced, not duplicated
@@ -701,9 +701,10 @@ public class PortabilityV2Tests : IDisposable
         var result = await _importSvc.ValidateAsync(package);
 
         Assert.True(result.IsValid);
-        Assert.Equal(5, result.TotalComments);
-        Assert.Equal(3, result.TotalFileRecords);
-        Assert.Equal(2, result.TotalArchiveTypes);
+        // Metadata is advisory and must not invent entities that are absent from the payload.
+        Assert.Equal(0, result.TotalComments);
+        Assert.Equal(0, result.TotalFileRecords);
+        Assert.Equal(0, result.TotalArchiveTypes);
     }
 
     // ===== Round-trip tests =====

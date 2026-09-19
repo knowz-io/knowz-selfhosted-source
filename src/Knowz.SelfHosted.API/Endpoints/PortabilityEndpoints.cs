@@ -99,7 +99,7 @@ public static class PortabilityEndpoints
             if (!AuthorizationHelpers.IsSuperAdmin(context))
                 return AuthorizationHelpers.Forbidden();
 
-            if (!Enum.TryParse<ImportConflictStrategy>(strategy, true, out var conflictStrategy))
+            if ((!Enum.TryParse<ImportConflictStrategy>(strategy, true, out var conflictStrategy) || !Enum.IsDefined(conflictStrategy)))
                 return Results.BadRequest(new { error = $"Invalid strategy: {strategy}. Use: skip, overwrite, merge" });
 
             try
@@ -133,7 +133,7 @@ public static class PortabilityEndpoints
             if (!AuthorizationHelpers.IsSuperAdmin(context))
                 return AuthorizationHelpers.Forbidden();
 
-            if (!Enum.TryParse<ImportConflictStrategy>(strategy, true, out var conflictStrategy))
+            if ((!Enum.TryParse<ImportConflictStrategy>(strategy, true, out var conflictStrategy) || !Enum.IsDefined(conflictStrategy)))
                 return Results.BadRequest(new { error = $"Invalid strategy: {strategy}. Use: skip, overwrite, merge" });
 
             var form = await context.Request.ReadFormAsync(ct);
@@ -149,31 +149,7 @@ public static class PortabilityEndpoints
                 using var stream = file.OpenReadStream();
                 using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
 
-                var package = PortableZipReader.ReadFromZip(archive);
-
-                var tenantId = tenantProvider.TenantId;
-                foreach (var fileRecord in package.Data.FileRecords)
-                {
-                    if (string.IsNullOrEmpty(fileRecord.BinaryFilePath))
-                        continue;
-
-                    var entry = archive.GetEntry(fileRecord.BinaryFilePath);
-                    if (entry == null)
-                    {
-                        logger.LogWarning(
-                            "ZIP entry not found for file record {FileRecordId}: {Path}",
-                            fileRecord.Id, fileRecord.BinaryFilePath);
-                        continue;
-                    }
-
-                    using var entryStream = entry.Open();
-                    var storagePath = await storageProvider.UploadAsync(
-                        tenantId, fileRecord.Id, entryStream,
-                        fileRecord.ContentType ?? "application/octet-stream", ct);
-                    fileRecord.BlobUri = storagePath;
-                }
-
-                var result = await importService.ImportAsync(package, conflictStrategy, ct);
+                var result = await importService.ImportZipAsync(archive, conflictStrategy, ct);
                 return result.Success
                     ? Results.Ok(result)
                     : Results.UnprocessableEntity(result);
@@ -182,6 +158,10 @@ public static class PortabilityEndpoints
             {
                 logger.LogWarning(ex, "ZIP security validation failed");
                 return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (InvalidDataException ex)
+            {
+                return Results.BadRequest(new { error = $"Invalid ZIP archive: {ex.Message}" });
             }
             catch (Exception ex)
             {

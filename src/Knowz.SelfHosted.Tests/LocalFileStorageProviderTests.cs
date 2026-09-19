@@ -42,6 +42,42 @@ public class LocalFileStorageProviderTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Upload_OverwriteWithDifferentMime_ReplacesPreviousBinary()
+    {
+        var id = Guid.NewGuid();
+        using var original = CreateTestStream("original");
+        await _provider.UploadAsync(TenantId, id, original, "application/octet-stream");
+        using var replacement = CreateTestStream("replacement");
+        await _provider.UploadAsync(TenantId, id, replacement, "text/plain");
+        Assert.Single(Directory.GetFiles(Path.Combine(_tempRoot, TenantId.ToString("N"))));
+        var (stream, type, _) = await _provider.DownloadAsync(TenantId, id);
+        using (stream) using (var reader = new StreamReader(stream)) Assert.Equal("replacement", await reader.ReadToEndAsync());
+        Assert.Equal("text/plain", type);
+    }
+
+    [Fact]
+    public async Task Upload_FailedReplacement_PreservesExistingBinary()
+    {
+        var id = Guid.NewGuid();
+        using var original = CreateTestStream("original");
+        await _provider.UploadAsync(TenantId, id, original, "text/plain");
+        using var failed = new FailingCopyStream();
+        await Assert.ThrowsAsync<IOException>(() => _provider.UploadAsync(TenantId, id, failed, "text/plain"));
+        var (stream, _, _) = await _provider.DownloadAsync(TenantId, id);
+        using (stream) using (var reader = new StreamReader(stream)) Assert.Equal("original", await reader.ReadToEndAsync());
+        Assert.Single(Directory.GetFiles(Path.Combine(_tempRoot, TenantId.ToString("N"))));
+    }
+
+    private sealed class FailingCopyStream : MemoryStream
+    {
+        public override async Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
+        {
+            await destination.WriteAsync("partial"u8.ToArray(), cancellationToken);
+            throw new IOException("Interrupted input");
+        }
+    }
+
     // --- Helpers ---
 
     private static MemoryStream CreateTestStream(string content = "test file content")

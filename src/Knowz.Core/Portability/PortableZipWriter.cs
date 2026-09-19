@@ -11,7 +11,8 @@ public static class PortableZipWriter
         ZipArchive archive,
         PortableExportPackage package,
         List<PortableSkippedItem>? skippedItems = null,
-        JsonSerializerOptions? options = null)
+        JsonSerializerOptions? options = null,
+        PortableZipPartManifestInfo? partInfo = null)
     {
         options ??= new JsonSerializerOptions
         {
@@ -19,7 +20,8 @@ public static class PortableZipWriter
             WriteIndented = true,
         };
 
-        WriteManifest(archive, package, skippedItems, options);
+        partInfo ??= new PortableZipPartManifestInfo(1, 1, Guid.NewGuid().ToString());
+        WriteManifest(archive, package, skippedItems, options, partInfo);
         WriteJsonEntry(archive, "_vaults.json", package.Data.Vaults, options);
         WriteJsonEntry(archive, "_persons.json", package.Data.Persons, options);
         WriteJsonEntry(archive, "_tags.json", package.Data.Tags, options);
@@ -29,6 +31,8 @@ public static class PortableZipWriter
         WriteJsonEntry(archive, "_inbox.json", package.Data.InboxItems, options);
         WriteJsonEntry(archive, "_skipped.json", skippedItems ?? new List<PortableSkippedItem>(), options);
 
+        if (package.Data.Archives.Count > 0)
+            WriteJsonEntry(archive, "_archives.json", package.Data.Archives, options);
         WritePerItemFiles(archive, package, options);
     }
 
@@ -36,7 +40,8 @@ public static class PortableZipWriter
         ZipArchive archive,
         PortableExportPackage package,
         List<PortableSkippedItem>? skippedItems,
-        JsonSerializerOptions options)
+        JsonSerializerOptions options,
+        PortableZipPartManifestInfo partInfo)
     {
         var manifest = new Dictionary<string, object?>
         {
@@ -61,6 +66,9 @@ public static class PortableZipWriter
                 ["fileRecords"] = package.Metadata.TotalFileRecords,
             },
             ["skippedCount"] = skippedItems?.Count ?? 0,
+            ["part"] = partInfo.Part,
+            ["totalParts"] = partInfo.TotalParts,
+            ["exportId"] = partInfo.ExportId,
         };
 
         WriteJsonEntry(archive, "_manifest.json", manifest, options);
@@ -75,10 +83,50 @@ public static class PortableZipWriter
             .GroupBy(c => c.KnowledgeId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        var filesByKnowledge = package.Data.FileRecords
-            .Where(f => f.Attachments.Any(a => a.KnowledgeId.HasValue))
-            .GroupBy(f => f.Attachments.First(a => a.KnowledgeId.HasValue).KnowledgeId!.Value)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        var knowledgeIds = package.Data.KnowledgeItems.Select(k => k.Id).ToHashSet();
+        var orphanComments = package.Data.Comments.Where(c => !knowledgeIds.Contains(c.KnowledgeId)).ToList();
+        if (orphanComments.Count > 0)
+            WriteJsonEntry(archive, "_orphan-comments.json", orphanComments, options);
+
+        var commentOwners = package.Data.Comments
+            .ToDictionary(comment => comment.Id, comment => comment.KnowledgeId);
+        var filesByKnowledge = new Dictionary<Guid, List<PortableFileRecord>>();
+        var vaultScopedFiles = new List<PortableFileRecord>();
+        foreach (var file in package.Data.FileRecords)
+        {
+            var ownerId = file.Attachments
+                .Where(attachment => attachment.KnowledgeId.HasValue && knowledgeIds.Contains(attachment.KnowledgeId.Value))
+                .Select(attachment => attachment.KnowledgeId)
+                .FirstOrDefault();
+            if (!ownerId.HasValue)
+            {
+                foreach (var attachment in file.Attachments)
+                {
+                    if (attachment.CommentId.HasValue
+                        && commentOwners.TryGetValue(attachment.CommentId.Value, out var knowledgeId)
+                        && knowledgeIds.Contains(knowledgeId))
+                    {
+                        ownerId = knowledgeId;
+                        break;
+                    }
+                }
+            }
+
+            if (!ownerId.HasValue)
+            {
+                // A file uploaded straight to a vault has no owning knowledge item. Skipping it
+                // here silently dropped vault content from every archive (F8) — give those
+                // records a dedicated entry instead of a per-item home.
+                vaultScopedFiles.Add(file);
+                continue;
+            }
+            if (!filesByKnowledge.TryGetValue(ownerId.Value, out var files))
+            {
+                files = new List<PortableFileRecord>();
+                filesByKnowledge[ownerId.Value] = files;
+            }
+            files.Add(file);
+        }
 
         foreach (var knowledge in package.Data.KnowledgeItems)
         {
@@ -94,6 +142,12 @@ public static class PortableZipWriter
                 WriteJsonEntry(archive, $"items/{knowledge.Id}-attachments.json", files, options);
             }
         }
+
+        if (vaultScopedFiles.Count > 0)
+        {
+            // Additive entry: readers that predate it simply ignore unknown archive names.
+            WriteJsonEntry(archive, "_vault-files.json", vaultScopedFiles, options);
+        }
     }
 
     private static void WriteJsonEntry<T>(ZipArchive archive, string entryName, T data, JsonSerializerOptions options)
@@ -104,6 +158,9 @@ public static class PortableZipWriter
         stream.Write(json);
     }
 }
+
+/// <summary>Manifest identity shared by every archive in one multi-part export.</summary>
+public sealed record PortableZipPartManifestInfo(int Part, int TotalParts, string ExportId);
 
 public class PortableSkippedItem
 {

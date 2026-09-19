@@ -99,11 +99,12 @@ public class StartupValidationTests
     [Fact]
     public void OptionalList_Default_ContainsExpectedShape()
     {
-        // SH_ENTERPRISE_RUNTIME_RESILIENCE §2.1 — attachment AI + DocIntel are the
-        // only optional services today. Locking the exact list so drift between
+        // SH_ENTERPRISE_RUNTIME_RESILIENCE §2.1 — attachment AI + DocIntel are optional;
+        // SH_AnydocContentExtractor R12 adds the local anydoc extractor (absent binary must warn
+        // and continue, never fail DI validation). Locking the exact list so drift between
         // Program.cs wiring and the list is detected by test.
         Assert.Equal(
-            new[] { "IAttachmentAIProvider", "DocumentIntelligenceContentExtractor" },
+            new[] { "IAttachmentAIProvider", "DocumentIntelligenceContentExtractor", "AnydocContentExtractor" },
             SelfHostedOptionalList.Default);
     }
 }

@@ -1,6 +1,7 @@
 namespace Knowz.SelfHosted.Application.Interfaces;
 
 using Knowz.Core.Portability;
+using System.IO.Compression;
 using Knowz.SelfHosted.Application.DTOs;
 
 public interface IPortableImportService
@@ -11,6 +12,9 @@ public interface IPortableImportService
     Task<ImportValidationResult> ValidateAsync(
         PortableExportPackage package,
         CancellationToken ct = default);
+
+    Task<PortableImportResult> ImportZipAsync(ZipArchive archive,
+        ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default);
 
     /// <summary>
     /// Import a portable package into the self-hosted database.

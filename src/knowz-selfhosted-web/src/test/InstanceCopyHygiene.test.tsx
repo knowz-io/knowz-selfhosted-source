@@ -57,8 +57,8 @@ function* walkSrc(dir: string = SRC_ROOT): Generator<string> {
 }
 
 // ---------- VERIFY-C1 / C8 : one name ----------
-describe('SH_InstanceCopyHygiene — one name for Knowz Cloud connect (C1, C8)', () => {
-  const NAME = 'Connect to Knowz Cloud'
+describe('SH_InstanceCopyHygiene — one name for the Destinations feature (C1, C8)', () => {
+  const NAME = 'Destinations'
 
   it('Should_UseTheSameLiteral_AtNavLabel_PageTitle_And_H1', () => {
     const navItem = NAV_ITEMS.find((i) => i.path === '/sync')
@@ -73,14 +73,14 @@ describe('SH_InstanceCopyHygiene — one name for Knowz Cloud connect (C1, C8)',
     expect(read('../components/platform-sync/ConnectionCard.tsx')).not.toContain(NAME)
   })
 
-  it('Should_RenderExactlyOneFeatureHeading_OnTheConnectRoute', () => {
+  it('Should_RenderExactlyOneFeatureHeading_OnTheDestinationsRoute', () => {
     // VERIFY-C8 / M7: page-meta strip suppressed + card heading demoted, so the
     // literal feature name appears as a heading exactly once on /sync.
     const pageSource = read('../pages/admin/PlatformSyncPage.tsx')
     const cardSource = read('../components/platform-sync/ConnectionCard.tsx')
-    const headings = [...pageSource.matchAll(/<h[12][^>]*>([^<]*Connect to Knowz Cloud[^<]*)<\/h[12]>/g)]
+    const headings = [...pageSource.matchAll(/<h[12][^>]*>([^<]*Destinations[^<]*)<\/h[12]>/g)]
     expect(headings).toHaveLength(1)
-    expect(cardSource).not.toMatch(/<h[12][^>]*>[^<]*Connect to Knowz Cloud/)
+    expect(cardSource).not.toMatch(/<h[12][^>]*>[^<]*Destinations/)
     expect(isPageMetaSuppressed('/sync')).toBe(true)
   })
 
@@ -101,11 +101,12 @@ describe('SH_InstanceCopyHygiene — one name for Knowz Cloud connect (C1, C8)',
 
   it('Should_SuppressPageMetaStrip_OnRoutesOwningTheirH1', () => {
     expect(isPageMetaSuppressed('/sync')).toBe(true)
+    expect(isPageMetaSuppressed('/destinations')).toBe(true)
     expect(isPageMetaSuppressed('/admin/platform-sync')).toBe(true)
     expect(isPageMetaSuppressed('/knowledge')).toBe(false)
   })
 
-  it('Should_NotRenderPageMetaStrip_OnTheConnectRoute', () => {
+  it('Should_NotRenderPageMetaStrip_OnTheDestinationsRoute', () => {
     renderWithProviders(<Header />, { initialEntries: ['/sync'] })
     expect(screen.queryByTestId('sh-pagemeta')).toBeNull()
   })

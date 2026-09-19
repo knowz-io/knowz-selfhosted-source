@@ -1,3 +1,13 @@
+# anydoc CLI (local document -> GFM conversion). WorkGroupID: kc-feat-anydoc-portable-tools-20260913-152433,
+# NodeID: INFRA_AnydocImageBundling (R2/R3/R4). The version pin is deliberate and must stay
+# character-identical to ANYDOC_VERSION in scripts/portable/ensure-host-tools.{sh,ps1} so the container
+# path and the host path resolve the same tool; floating ranges (^, ~, latest) are forbidden.
+# node:20-bookworm-slim is digest-pinned to its multi-arch manifest-list (resolved 2026-09-13). bookworm
+# (glibc 2.36) is deliberate: the dotnet/aspnet:10.0 runtime moved to Trixie and glibc is backward
+# compatible in that direction. Refresh: docker buildx imagetools inspect node:20-bookworm-slim
+FROM node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS anydoc
+RUN npm install -g --no-audit --no-fund @firecrawl/anydoc@0.2.4
+
 # Base stage: ASP.NET 10.0 runtime
 # Base images pinned by digest (multi-arch manifest-list digests, supply-chain integrity).
 # Refresh: docker buildx imagetools inspect <image>:<tag>  (update tag + digest together).
@@ -42,6 +52,17 @@ ENV ASPNETCORE_URLS=http://+:8080 \
 # Install curl for healthcheck + create file storage directory
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /data/files /data/keys && chown -R $APP_UID:$APP_UID /data/files /data/keys
+
+# anydoc runtime assets (INFRA_AnydocImageBundling R5/R6). Only the `node` binary is copied, not the
+# whole node distribution: the CLI is pure JS plus napi prebuilds that live under @firecrawl.
+# /usr/local/bin/anydoc is a HARD CONTRACT - probe step 2 of the SVC_AnydocDocumentConverter locator -
+# and must not be renamed. Same post-mortem motivation as the ffmpeg/ONNX blocks: a tool present in three
+# images and missing from the fourth degrades silently. MUST stay before any USER directive (the RUN
+# needs root, and the copied 0755 paths must remain readable by APP_UID).
+COPY --from=anydoc /usr/local/bin/node /usr/local/bin/node
+COPY --from=anydoc /usr/local/lib/node_modules/@firecrawl /opt/anydoc/node_modules/@firecrawl
+RUN printf '#!/bin/sh\nexec /usr/local/bin/node /opt/anydoc/node_modules/@firecrawl/anydoc/cli.js "$@"\n' \
+      > /usr/local/bin/anydoc && chmod +x /usr/local/bin/anydoc
 
 # Switch to built-in non-root user (APP_UID=1654 in .NET 10 base image)
 USER $APP_UID

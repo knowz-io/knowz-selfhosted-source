@@ -29,6 +29,16 @@ interface ConnectionCardProps {
 
 type BannerKind = 'success' | 'error' | 'warning' | 'info'
 
+/**
+ * Live-connect spec S8 — an Unauthorized result is almost always a tenant (`kz_`)
+ * key or a revoked key, so say that at the point the operator sees it.
+ */
+const UNAUTHORIZED_HINT = ' Check that the key is a personal ukz_ key and still active.'
+
+function withKeyHint(message: string, status: PlatformConnectionTestStatus): string {
+  return status === 'Unauthorized' ? `${message}${UNAUTHORIZED_HINT}` : message
+}
+
 interface Banner {
   kind: BannerKind
   message: string
@@ -83,7 +93,13 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
       if (result.status === 'Ok') {
         setBanner({ kind: 'success', message: result.message || 'Connection test succeeded.' })
       } else {
-        setBanner({ kind: 'error', message: result.message || `Test failed: ${result.status}` })
+        setBanner({
+          kind: 'error',
+          message: withKeyHint(
+            result.message || `Test failed: ${result.status}`,
+            result.status,
+          ),
+        })
       }
     },
     onError: (err) => {
@@ -119,7 +135,13 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
       if (result.status === 'Ok') {
         setBanner({ kind: 'success', message: result.message || 'Connection is healthy.' })
       } else {
-        setBanner({ kind: 'error', message: result.message || `Test failed: ${result.status}` })
+        setBanner({
+          kind: 'error',
+          message: withKeyHint(
+            result.message || `Test failed: ${result.status}`,
+            result.status,
+          ),
+        })
       }
       queryClient.invalidateQueries({ queryKey: ['platform-sync', 'connection'] })
       queryClient.invalidateQueries({ queryKey: ['platform-sync', 'history'] })
@@ -255,6 +277,13 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
                 autoComplete="off"
                 className="w-full px-3 py-2 border border-input rounded-md bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
+              <p
+                data-testid="cloud-url-guidance"
+                className="mt-1 text-xs text-muted-foreground"
+              >
+                Knowz Cloud only: https://api.knowz.io (or https://api.dev.knowz.io). Other
+                hosts are not allowed on this edition.
+              </p>
             </div>
 
             <div>
@@ -289,6 +318,13 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
                 placeholder="ukz_..."
                 className="w-full px-3 py-2 border border-input rounded-md bg-card text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
               />
+              <p
+                data-testid="api-key-guidance"
+                className="mt-1 text-xs text-muted-foreground"
+              >
+                Use a personal API key (starts with ukz_). Tenant keys (kz_) are rejected
+                because sync needs a user identity.
+              </p>
               <p className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
                 <Shield size={11} />
                 API key is never displayed after save. Only a masked form is shown.
@@ -440,7 +476,10 @@ function BannerBox({ banner, onDismiss }: { banner: Banner; onDismiss: () => voi
     info: 'bg-blue-50 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-900',
   }
   return (
-    <div className={`flex items-start gap-2 px-3 py-2 border rounded-md text-sm ${styles[banner.kind]}`}>
+    <div
+      data-testid="connection-banner"
+      className={`flex items-start gap-2 px-3 py-2 border rounded-md text-sm ${styles[banner.kind]}`}
+    >
       <span className="flex-1">{banner.message}</span>
       <button
         onClick={onDismiss}

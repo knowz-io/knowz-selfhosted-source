@@ -277,6 +277,14 @@ public class PortableExportService : IPortableExportService
             }
 
             MergePlatformData(f.PlatformData, d => dto.ExtensionData = d);
+            if (dto.ExtensionData?.Remove(PortableImportService.AttachmentMetadataKey, out var attachmentMetadata) == true)
+            {
+                var stored = attachmentMetadata.Deserialize<List<PortableFileAttachmentLink>>() ?? new();
+                dto.Attachments = dto.Attachments.Select(link => stored.FirstOrDefault(a =>
+                    a.KnowledgeId == link.KnowledgeId && a.CommentId == link.CommentId) ?? link).ToList();
+                if (dto.ExtensionData.Count == 0) dto.ExtensionData = null;
+            }
+
             portableFiles.Add(dto);
         }
 

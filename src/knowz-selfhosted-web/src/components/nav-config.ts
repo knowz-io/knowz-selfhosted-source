@@ -32,7 +32,7 @@ export const overflowNav: ReadonlyArray<NavItem> = Object.freeze<NavItem[]>([
   { path: '/files', label: 'Files', icon: FileText, testId: 'files' },
   { path: '/inbox', label: 'Inbox', icon: Inbox, testId: 'inbox' },
   { path: '/organize', label: 'Organize', icon: Layers, testId: 'organize' },
-  { path: '/sync', label: 'Connect to Knowz Cloud', icon: Cloud, testId: 'sync' },
+  { path: '/sync', label: 'Destinations', icon: Cloud, testId: 'sync' },
 ])
 
 export const SUPER_ADMIN_ONLY_ADMIN_PATHS: ReadonlySet<string> = new Set([

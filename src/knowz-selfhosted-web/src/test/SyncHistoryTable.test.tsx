@@ -139,3 +139,26 @@ describe('SyncHistoryTable', () => {
     expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
   })
 })
+
+// ---------- UI_SH_DestinationsPolish : S9 partial explainer ----------
+describe('SyncHistoryTable — partial status explainer (S9, VERIFY-SH-8)', () => {
+  const partialRun: PlatformSyncRunDto = {
+    ...succeededRun,
+    id: 'run-3',
+    status: 'Partial',
+    itemCount: 100,
+  }
+
+  it('Should_ExplainTheItemCap_OnThePartialBadge', () => {
+    renderTable({ history: [partialRun] })
+    const badge = screen.getByText('Partial')
+    expect(badge.getAttribute('title')).toContain('100-item limit')
+    expect(badge.getAttribute('title')).toMatch(/run again/i)
+  })
+
+  it('Should_NotAddATitle_ToOtherStatusBadges', () => {
+    renderTable({ history: [succeededRun, failedRun] })
+    expect(screen.getByText('Succeeded').getAttribute('title')).toBeNull()
+    expect(screen.getByText('Failed').getAttribute('title')).toBeNull()
+  })
+})

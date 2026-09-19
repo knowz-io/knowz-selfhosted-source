@@ -1,7 +1,9 @@
 using Knowz.Core.Entities;
 using Knowz.Core.Enums;
+using Knowz.Core.Configuration;
 using Knowz.SelfHosted.Infrastructure.Interfaces;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Knowz.SelfHosted.Infrastructure.Services;
 
@@ -24,11 +26,18 @@ public class DocumentIntelligenceContentExtractor : IFileContentExtractor
 
     public DocumentIntelligenceContentExtractor(
         IAttachmentAIProvider provider,
-        ILogger<DocumentIntelligenceContentExtractor> logger)
+        ILogger<DocumentIntelligenceContentExtractor> logger,
+        IOptions<AnydocOptions>? anydocOptions = null)
     {
         _provider = provider;
         _logger = logger;
+        MayDecline = anydocOptions?.Value is { Enabled: true } options &&
+            string.Equals(options.Mode, "FallbackOnly", StringComparison.OrdinalIgnoreCase);
     }
+
+    // Only the explicitly configured cloud-then-local chain may recover from provider failures.
+    // PreferLocal and Off retain the existing terminal cloud-failure behavior.
+    public bool MayDecline { get; }
 
     public bool CanExtract(string? contentType)
     {
@@ -64,7 +73,9 @@ public class DocumentIntelligenceContentExtractor : IFileContentExtractor
                 return new FileExtractionResult(false, ErrorMessage: "Document file is empty");
 
             // Set status to Processing
-            fileRecord.TextExtractionStatus = (int)TextExtractionStatus.Processing;
+            // A declined attempt must leave the record untouched for the following extractor.
+            if (!MayDecline)
+                fileRecord.TextExtractionStatus = (int)TextExtractionStatus.Processing;
 
             var mimeType = fileRecord.ContentType ?? "application/pdf";
             var result = await _provider.ExtractDocumentAsync(documentBytes, mimeType, ct);
@@ -74,16 +85,12 @@ public class DocumentIntelligenceContentExtractor : IFileContentExtractor
                 _logger.LogWarning(
                     "Attachment AI provider is not available — document extraction for {FileRecordId} ({FileName}) skipped. {Reason}",
                     fileRecord.Id, fileRecord.FileName, result.ErrorMessage);
-                fileRecord.TextExtractionStatus = (int)TextExtractionStatus.Failed;
-                fileRecord.TextExtractionError = result.ErrorMessage;
-                return new FileExtractionResult(false, ErrorMessage: result.ErrorMessage);
+                return ProviderFailure(fileRecord, result.ErrorMessage);
             }
 
             if (!result.Success)
             {
-                fileRecord.TextExtractionStatus = (int)TextExtractionStatus.Failed;
-                fileRecord.TextExtractionError = result.ErrorMessage;
-                return new FileExtractionResult(false, ErrorMessage: result.ErrorMessage);
+                return ProviderFailure(fileRecord, result.ErrorMessage);
             }
 
             // Success — populate FileRecord fields
@@ -105,9 +112,17 @@ public class DocumentIntelligenceContentExtractor : IFileContentExtractor
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Document extraction failed for FileRecord {Id}", fileRecord.Id);
-            fileRecord.TextExtractionStatus = (int)TextExtractionStatus.Failed;
-            fileRecord.TextExtractionError = ex.Message;
-            return new FileExtractionResult(false, ErrorMessage: ex.Message);
+            return ProviderFailure(fileRecord, ex.Message);
         }
+    }
+
+    private FileExtractionResult ProviderFailure(FileRecord fileRecord, string? error)
+    {
+        if (!MayDecline)
+        {
+            fileRecord.TextExtractionStatus = (int)TextExtractionStatus.Failed;
+            fileRecord.TextExtractionError = error;
+        }
+        return new FileExtractionResult(false, ErrorMessage: error, Declined: MayDecline);
     }
 }

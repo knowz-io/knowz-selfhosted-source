@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Cloud } from 'lucide-react'
+import { Cloud, FileArchive } from 'lucide-react'
 import { api, ApiError } from '../../lib/api-client'
 import ConnectionCard from '../../components/platform-sync/ConnectionCard'
 import VaultLinksTable from '../../components/platform-sync/VaultLinksTable'
 import SyncHistoryTable from '../../components/platform-sync/SyncHistoryTable'
 import BrowsePlatformModal from '../../components/platform-sync/BrowsePlatformModal'
+import SurfaceCard from '../../components/ui/SurfaceCard'
 
 const HISTORY_LIMITS = [25, 50, 100, 500] as const
 type HistoryLimit = (typeof HISTORY_LIMITS)[number]
@@ -61,9 +63,10 @@ export default function PlatformSyncPage() {
       <div className="flex items-center gap-3">
         <Cloud size={24} className="text-muted-foreground" />
         <div>
-          <h1 className="text-2xl font-bold">Connect to Knowz Cloud</h1>
+          <h1 className="text-2xl font-bold">Destinations</h1>
           <p className="text-sm text-muted-foreground">
-            Connect a Knowz Cloud API key and sync vaults with your Knowz Cloud account.
+            Connect a destination, link vaults, then run Pull, Push, or Full when you
+            choose. Nothing syncs automatically.
           </p>
         </div>
       </div>
@@ -91,6 +94,25 @@ export default function PlatformSyncPage() {
         onLinkFilterChange={setHistoryLinkFilter}
         links={links}
       />
+
+      <SurfaceCard className="p-4">
+        <div className="flex items-start gap-3">
+          <FileArchive size={18} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <div>
+            <h2 className="text-base font-semibold">File export / import</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Moving data as files instead of a live connection? Export or import a
+              portable package from the data tab.
+            </p>
+            <Link
+              to="/settings?tab=data"
+              className="mt-2 inline-block text-sm font-medium text-primary underline"
+            >
+              Open file export / import
+            </Link>
+          </div>
+        </div>
+      </SurfaceCard>
 
       {isBrowseOpen && (
         <BrowsePlatformModal links={links} onClose={() => setIsBrowseOpen(false)} />

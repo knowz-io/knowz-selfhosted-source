@@ -245,4 +245,180 @@ public class CompositeContentExtractorTests
         Assert.True(docxExtractor.CanExtract(docxType));
         Assert.True(composite.CanExtract(docxType));
     }
+
+    // =============================================
+    // R5 fall-through (NodeID SH_AnydocContentExtractor) — declining extractors
+    // =============================================
+
+    /// <summary>Test double standing in for AnydocContentExtractor: claims a type and declines.</summary>
+    private sealed class FakeDecliningExtractor : IFileContentExtractor
+    {
+        private readonly string _contentType;
+        private readonly bool _decline;
+        private readonly bool _consumeStream;
+        public int Calls { get; private set; }
+        public string? SeenContent { get; private set; }
+
+        public FakeDecliningExtractor(string contentType, bool decline, bool consumeStream = false)
+        {
+            _contentType = contentType;
+            _decline = decline;
+            _consumeStream = consumeStream;
+        }
+
+        public bool MayDecline => true;
+
+        public bool CanExtract(string? contentType) =>
+            string.Equals(contentType, _contentType, StringComparison.OrdinalIgnoreCase);
+
+        public async Task<FileExtractionResult> ExtractAsync(
+            FileRecord fileRecord, Stream fileStream, CancellationToken ct = default)
+        {
+            Calls++;
+            if (_consumeStream)
+            {
+                using var reader = new StreamReader(fileStream, leaveOpen: true);
+                SeenContent = await reader.ReadToEndAsync(ct);
+            }
+
+            return _decline
+                ? new FileExtractionResult(false, ErrorMessage: "needs-ocr", Declined: true)
+                : new FileExtractionResult(true, ExtractedText: "anydoc markdown");
+        }
+    }
+
+    /// <summary>Legacy-semantics double: fails WITHOUT declining, so the chain must stop.</summary>
+    private sealed class FakeFailingExtractor : IFileContentExtractor
+    {
+        private readonly string _contentType;
+        public FakeFailingExtractor(string contentType) => _contentType = contentType;
+
+        public bool CanExtract(string? contentType) =>
+            string.Equals(contentType, _contentType, StringComparison.OrdinalIgnoreCase);
+
+        public Task<FileExtractionResult> ExtractAsync(
+            FileRecord fileRecord, Stream fileStream, CancellationToken ct = default)
+            => Task.FromResult(new FileExtractionResult(false, ErrorMessage: "hard failure"));
+    }
+
+    /// <summary>Reads the stream and echoes what it saw — proves the rewind between attempts.</summary>
+    private sealed class EchoExtractor : IFileContentExtractor
+    {
+        private readonly string _contentType;
+        public int Calls { get; private set; }
+        public EchoExtractor(string contentType) => _contentType = contentType;
+
+        public bool CanExtract(string? contentType) =>
+            string.Equals(contentType, _contentType, StringComparison.OrdinalIgnoreCase);
+
+        public async Task<FileExtractionResult> ExtractAsync(
+            FileRecord fileRecord, Stream fileStream, CancellationToken ct = default)
+        {
+            Calls++;
+            using var reader = new StreamReader(fileStream, leaveOpen: true);
+            var text = await reader.ReadToEndAsync(ct);
+            return new FileExtractionResult(true, ExtractedText: text);
+        }
+    }
+
+    [Fact]
+    public async Task Should_FallThroughToDocumentIntelligence_WhenAnydocDeclines()
+    {
+        // DISCRIMINATING TEST for R5 — fails against the pre-change composite, which returned the
+        // first matching extractor's result verbatim (a decline would have KILLED extraction).
+        var mockProvider = Substitute.For<IAttachmentAIProvider>();
+        mockProvider.ProviderName.Returns("Platform");
+        mockProvider.ExtractDocumentAsync(
+            Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new DocumentExtractionResult(Success: true, ExtractedText: "AI-extracted text"));
+
+        var anydoc = new FakeDecliningExtractor("application/pdf", decline: true);
+        var diExtractor = new DocumentIntelligenceContentExtractor(
+            mockProvider, Substitute.For<ILogger<DocumentIntelligenceContentExtractor>>());
+
+        var composite = new CompositeContentExtractor(new IFileContentExtractor[] { anydoc, diExtractor });
+
+        var record = MakeRecord("application/pdf", "doc.pdf");
+        using var stream = new MemoryStream(new byte[] { 0x25, 0x50, 0x44, 0x46 });
+
+        var result = await composite.ExtractAsync(record, stream);
+
+        Assert.True(result.Success);
+        Assert.Equal("AI-extracted text", result.ExtractedText);
+        Assert.False(result.Declined);
+        Assert.Equal(1, anydoc.Calls);
+        await mockProvider.Received(1).ExtractDocumentAsync(
+            Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_ShortCircuit_WhenAnydocSucceeds()
+    {
+        var mockProvider = Substitute.For<IAttachmentAIProvider>();
+        mockProvider.ProviderName.Returns("Platform");
+        mockProvider.ExtractDocumentAsync(
+            Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new DocumentExtractionResult(Success: true, ExtractedText: "AI-extracted text"));
+
+        var anydoc = new FakeDecliningExtractor("application/pdf", decline: false);
+        var diExtractor = new DocumentIntelligenceContentExtractor(
+            mockProvider, Substitute.For<ILogger<DocumentIntelligenceContentExtractor>>());
+
+        var composite = new CompositeContentExtractor(new IFileContentExtractor[] { anydoc, diExtractor });
+
+        var result = await composite.ExtractAsync(
+            MakeRecord("application/pdf", "doc.pdf"), new MemoryStream(new byte[] { 1, 2, 3 }));
+
+        Assert.True(result.Success);
+        Assert.Equal("anydoc markdown", result.ExtractedText);
+        await mockProvider.DidNotReceive().ExtractDocumentAsync(
+            Arg.Any<byte[]>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Should_StopChain_WhenExtractorFailsWithoutDeclining()
+    {
+        // Legacy semantics preserved for PdfContentExtractor et al.
+        var failing = new FakeFailingExtractor("application/pdf");
+        var echo = new EchoExtractor("application/pdf");
+        var composite = new CompositeContentExtractor(new IFileContentExtractor[] { failing, echo });
+
+        var result = await composite.ExtractAsync(
+            MakeRecord("application/pdf"), new MemoryStream(new byte[] { 1 }));
+
+        Assert.False(result.Success);
+        Assert.Equal("hard failure", result.ErrorMessage);
+        Assert.Equal(0, echo.Calls);
+    }
+
+    [Fact]
+    public async Task Should_RewindStream_BetweenAttempts()
+    {
+        var anydoc = new FakeDecliningExtractor("application/pdf", decline: true, consumeStream: true);
+        var echo = new EchoExtractor("application/pdf");
+        var composite = new CompositeContentExtractor(new IFileContentExtractor[] { anydoc, echo });
+
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("full document body"));
+        var result = await composite.ExtractAsync(MakeRecord("application/pdf"), stream);
+
+        Assert.Equal("full document body", anydoc.SeenContent);
+        Assert.True(result.Success);
+        Assert.Equal("full document body", result.ExtractedText);
+    }
+
+    [Fact]
+    public async Task Should_ReturnLastResult_WhenEveryCandidateDeclines()
+    {
+        var first = new FakeDecliningExtractor("application/pdf", decline: true);
+        var second = new FakeDecliningExtractor("application/pdf", decline: true);
+        var composite = new CompositeContentExtractor(new IFileContentExtractor[] { first, second });
+
+        var result = await composite.ExtractAsync(
+            MakeRecord("application/pdf"), new MemoryStream(new byte[] { 1 }));
+
+        Assert.False(result.Success);
+        Assert.True(result.Declined);
+        Assert.Equal(1, first.Calls);
+        Assert.Equal(1, second.Calls);
+    }
 }

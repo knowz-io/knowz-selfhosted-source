@@ -205,6 +205,7 @@ app.MapMcp("/mcp");
 // Map endpoints from organized endpoint classes
 app.MapHealthEndpoints();
 app.MapOAuthEndpoints();
+app.MapOpenAiAppsChallengeEndpoints();
 app.MapLegacySseEndpoints();
 
 app.Run();

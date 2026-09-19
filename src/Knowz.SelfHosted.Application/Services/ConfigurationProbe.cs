@@ -19,7 +19,7 @@ public static class ConfigurationProbe
     public static string Kind(string category) => category switch
     {
         "ConnectionStrings" or "AzureOpenAI" or "OpenAiCompatible" => "connectivity",
-        "AzureAIVision" or "AzureDocumentIntelligence" or "AzureAISearch" or "KnowzPlatform" or "Storage" or "SSO" => "configuration",
+        "AzureAIVision" or "AzureDocumentIntelligence" or "AzureAISearch" or "KnowzPlatform" or "Storage" or "SSO" or "Anydoc" => "configuration",
         _ => "unsupported"
     };
 
@@ -68,6 +68,21 @@ public static class ConfigurationProbe
                 await client.GetChatClient(chat).CompleteChatAsync([new UserChatMessage("Reply OK")],
                     new ChatCompletionOptions { MaxOutputTokenCount = 1 }, deadline.Token);
                 await client.GetEmbeddingClient(embedding).GenerateEmbeddingAsync("connection check", cancellationToken: deadline.Token);
+            }
+            else if (category == "Anydoc")
+            {
+                // Local CLI — NO network call, ever. Report only whether the binary resolves.
+                // NodeID SH_AnydocContentExtractor (R11).
+                var options = new Knowz.Core.Configuration.AnydocOptions();
+                config.GetSection(Knowz.Core.Configuration.AnydocOptions.SectionName).Bind(options);
+                var extractor = new AnydocContentExtractor(
+                    Microsoft.Extensions.Options.Options.Create(options), config,
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<AnydocContentExtractor>.Instance);
+                var cliPath = extractor.ResolvedCliPath;
+                if (cliPath is null) return Missing(result);
+                result.ProbeStatus = "configuration-valid";
+                result.Status = $"Local anydoc CLI resolved at {cliPath}; connectivity not applicable";
+                return result;
             }
             else
             {
