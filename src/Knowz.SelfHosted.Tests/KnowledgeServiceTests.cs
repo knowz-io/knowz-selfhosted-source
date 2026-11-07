@@ -79,6 +79,36 @@ public class KnowledgeServiceTests : IDisposable
         Assert.IsType<KnowledgeItemResponse>(result);
     }
 
+    [Fact]
+    public async Task NormalKnowledgeReads_DeclareSealedStateWithoutLeakingCiphertext()
+    {
+        var item = new Knowledge { TenantId = TenantId, Title = "Encrypted item", Content = "" };
+        _db.KnowledgeItems.Add(item);
+        _db.ShSealedKnowledge.Add(new() { Id = Guid.NewGuid(), TenantId = TenantId, KnowledgeId = item.Id, OriginalItemId = item.Id, Ciphertext = "sealed-data" });
+        await _db.SaveChangesAsync();
+        var single = await _svc.GetKnowledgeItemAsync(item.Id, CancellationToken.None);
+        Assert.True(single!.IsEncrypted); Assert.Empty(single.Content);
+        var bulk = await _svc.BulkGetKnowledgeItemsAsync([item.Id], CancellationToken.None);
+        Assert.True(Assert.Single(bulk.Items).IsEncrypted);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PlainOwner_WithProtectedCommentFileMetadata_DeclaresAttachmentStateOnly(bool graphLink)
+    {
+        var item = new Knowledge { TenantId = TenantId, Title = "Plain item", Content = "Still plain" };
+        var comment = new KnowledgeComment { TenantId = TenantId, KnowledgeId = item.Id, Body = "Plain comment" };
+        var file = new FileRecord { TenantId = TenantId, FileName = "[Encrypted]", EncryptedFieldsJson = "{protected fixture}" };
+        _db.KnowledgeItems.Add(item); _db.Comments.Add(comment); _db.FileRecords.Add(file);
+        if (graphLink) _db.ShSealedAttachments.Add(new() { TenantId = TenantId, FileRecordId = file.Id, CommentId = comment.Id, OriginalAttachmentId = Guid.NewGuid() });
+        else _db.FileAttachments.Add(new() { TenantId = TenantId, FileRecordId = file.Id, CommentId = comment.Id });
+        await _db.SaveChangesAsync();
+        var single = await _svc.GetKnowledgeItemAsync(item.Id, CancellationToken.None);
+        Assert.False(single!.IsEncrypted); Assert.True(single.HasEncryptedAttachments); Assert.Equal("Still plain", single.Content);
+        Assert.True(Assert.Single((await _svc.BulkGetKnowledgeItemsAsync([item.Id], CancellationToken.None)).Items).HasEncryptedAttachments);
+    }
+
     // --- FIX_Knowledge404: PUT returns null when not found ---
 
     [Fact]

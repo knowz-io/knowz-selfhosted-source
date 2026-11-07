@@ -4,6 +4,7 @@ using Knowz.Core.Interfaces;
 using Knowz.SelfHosted.Application.DTOs;
 using Knowz.SelfHosted.Infrastructure.Interfaces;
 using Knowz.SelfHosted.Infrastructure.Data;
+using Knowz.SelfHosted.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -121,7 +122,7 @@ public class FileStorageService
                     // Text/PDF/Office extraction is fast (<1s) so this only affects images.
                     using var extractionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                     extractionCts.CancelAfter(TimeSpan.FromSeconds(30));
-                    var extraction = await _contentExtractor!.ExtractAsync(fileRecord, workingStream, extractionCts.Token);
+                    var extraction = await ExtractPlainFileAsync(fileRecord, workingStream, extractionCts.Token);
                     if (extraction.Success)
                     {
                         fileRecord.ExtractedText = extraction.ExtractedText;
@@ -168,9 +169,9 @@ public class FileStorageService
 
         try
         {
-            var result = await _storageProvider.DownloadAsync(fileRecord.TenantId, fileRecordId, ct)
+            var result = await _storageProvider.DownloadAsync(fileRecord.TenantId, await StorageIdAsync(fileRecordId, ct), ct)
                 .ConfigureAwait(false);
-            return (result.stream, fileRecord.ContentType ?? result.contentType, fileRecord.FileName);
+            return (result.stream, fileRecord.ContentType ?? result.contentType, ProtectedFileMetadata.FileName(fileRecord));
         }
         catch (FileNotFoundException)
         {
@@ -185,12 +186,15 @@ public class FileStorageService
         if (fileRecord == null)
             return null;
 
+        // Resolve while the authorized logical record is still live. A corrupt pointer must
+        // not soft-delete the record or cause deletion of unrelated legacy bytes.
+        var storageId = await StorageIdAsync(fileRecordId, ct);
         await _fileRepo.SoftDeleteAsync(fileRecord, ct).ConfigureAwait(false);
         await _fileRepo.SaveChangesAsync(ct).ConfigureAwait(false);
 
         try
         {
-            await _storageProvider.DeleteAsync(fileRecord.TenantId, fileRecordId, ct).ConfigureAwait(false);
+            await _storageProvider.DeleteAsync(fileRecord.TenantId, storageId, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -202,7 +206,7 @@ public class FileStorageService
 
     private static readonly Expression<Func<FileRecord, FileMetadataDto>> FileRecordProjection =
         f => new FileMetadataDto(
-            f.Id, f.FileName, f.ContentType, f.SizeBytes, f.BlobUri,
+            f.Id, ProtectedFileMetadata.FileName(f), f.ContentType, f.SizeBytes, f.BlobUri,
             f.TranscriptionText, f.ExtractedText, f.VisionDescription,
             f.BlobMigrationPending, f.CreatedAt, f.UpdatedAt,
             f.Attachments.Where(a => a.KnowledgeId != null).Select(a => a.KnowledgeId).FirstOrDefault(),
@@ -271,9 +275,12 @@ public class FileStorageService
             throw new FileNotFoundException($"FileRecord {fileRecordId} not found");
 
         return await _storageProvider.GenerateDownloadUrlAsync(
-            fileRecord.TenantId, fileRecordId, fileRecord.FileName, expiry, ct)
+            fileRecord.TenantId, await StorageIdAsync(fileRecordId, ct), ProtectedFileMetadata.FileName(fileRecord), expiry, ct)
             .ConfigureAwait(false);
     }
+
+    private Task<Guid> StorageIdAsync(Guid fileRecordId, CancellationToken ct)
+        => SelfHostedFileObjects.ResolveStorageIdAsync(_db, _tenantProvider.TenantId, fileRecordId, ct);
 
     // --- Attachment Operations ---
 
@@ -284,8 +291,14 @@ public class FileStorageService
         if (fileRecord == null)
             throw new InvalidOperationException($"FileRecord {fileRecordId} does not exist");
 
+        await RequireOrdinaryFileAsync(fileRecord, ct);
+
         if (!await _db.KnowledgeItems.AnyAsync(k => k.Id == knowledgeId, ct).ConfigureAwait(false))
             throw new InvalidOperationException($"Knowledge {knowledgeId} does not exist");
+
+        if (await _db.ShSealedKnowledge.AnyAsync(s => s.KnowledgeId == knowledgeId, ct).ConfigureAwait(false))
+            throw new SealedItemLockedException();
+        if (!await PortableProcessingPolicy.CanProcessAsync(_db, knowledgeId, _tenantProvider.TenantId, ct)) throw new SealedItemLockedException();
 
         var existing = await _db.FileAttachments
             .FirstOrDefaultAsync(fa => fa.FileRecordId == fileRecordId && fa.KnowledgeId == knowledgeId, ct)
@@ -313,9 +326,9 @@ public class FileStorageService
         {
             try
             {
-                var downloadResult = await _storageProvider.DownloadAsync(fileRecord.TenantId, fileRecordId, ct);
+                var downloadResult = await _storageProvider.DownloadAsync(fileRecord.TenantId, await StorageIdAsync(fileRecordId, ct), ct);
                 using var stream = downloadResult.stream;
-                var extraction = await _contentExtractor.ExtractAsync(fileRecord, stream, ct);
+                var extraction = await ExtractPlainFileAsync(fileRecord, stream, ct);
                 if (extraction.Success)
                 {
                     fileRecord.ExtractedText = extraction.ExtractedText;
@@ -352,8 +365,17 @@ public class FileStorageService
         if (fileRecord == null)
             throw new InvalidOperationException($"FileRecord {fileRecordId} does not exist");
 
-        if (!await _db.Comments.AnyAsync(c => c.Id == commentId, ct).ConfigureAwait(false))
+        await RequireOrdinaryFileAsync(fileRecord, ct);
+
+        var comment = await _db.Comments.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == commentId, ct)
+            .ConfigureAwait(false);
+        if (comment == null)
             throw new InvalidOperationException($"Comment {commentId} does not exist");
+        if (await _db.ShSealedKnowledge.AnyAsync(s => s.KnowledgeId == comment.KnowledgeId, ct).ConfigureAwait(false))
+            throw new SealedItemLockedException();
+        if (!await PortableProcessingPolicy.CanProcessAsync(_db, comment.KnowledgeId, _tenantProvider.TenantId, ct)
+            || await _db.ShSealedComments.AnyAsync(s => s.Id == commentId || s.LineageScope == "" && s.OriginalCommentId == commentId && s.KnowledgeId == comment.KnowledgeId, ct)) throw new SealedItemLockedException();
 
         var existing = await _db.FileAttachments
             .FirstOrDefaultAsync(fa => fa.FileRecordId == fileRecordId && fa.CommentId == commentId, ct)
@@ -381,9 +403,9 @@ public class FileStorageService
         {
             try
             {
-                var downloadResult = await _storageProvider.DownloadAsync(fileRecord.TenantId, fileRecordId, ct);
+                var downloadResult = await _storageProvider.DownloadAsync(fileRecord.TenantId, await StorageIdAsync(fileRecordId, ct), ct);
                 using var stream = downloadResult.stream;
-                var extraction = await _contentExtractor.ExtractAsync(fileRecord, stream, ct);
+                var extraction = await ExtractPlainFileAsync(fileRecord, stream, ct);
                 if (extraction.Success)
                 {
                     fileRecord.ExtractedText = extraction.ExtractedText;
@@ -397,9 +419,7 @@ public class FileStorageService
             }
         }
 
-        // Resolve parent Knowledge for re-enrichment
-        var comment = await _db.Comments.FindAsync(new object[] { commentId }, ct);
-        if (comment != null && _enrichmentWriter != null)
+        if (_enrichmentWriter != null)
         {
             try
             {
@@ -449,7 +469,7 @@ public class FileStorageService
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(f => f.Id == fileRecordId, ct)
             .ConfigureAwait(false);
-        var fileName = fileRecord?.FileName ?? fileRecordId.ToString();
+        var fileName = fileRecord == null ? fileRecordId.ToString() : ProtectedFileMetadata.FileName(fileRecord);
 
         if (!effectiveDeleteFiles)
         {
@@ -490,7 +510,7 @@ public class FileStorageService
                 // we bail without saving so the FileRecord stays referenceable (R5).
                 try
                 {
-                    await _storageProvider.DeleteAsync(_tenantProvider.TenantId, fileRecordId, ct)
+                    await _storageProvider.DeleteAsync(_tenantProvider.TenantId, await StorageIdAsync(fileRecordId, ct), ct)
                         .ConfigureAwait(false);
                     fileRecord.IsDeleted = true;
                     fileRecord.UpdatedAt = DateTime.UtcNow;
@@ -604,8 +624,34 @@ public class FileStorageService
         return fileRecords.Select(MapToDto).ToList();
     }
 
+    private async Task RequireOrdinaryFileAsync(FileRecord file, CancellationToken ct)
+    {
+        if (file.TenantId != _tenantProvider.TenantId || file.TenantId != _db.CurrentTenantId) throw new UnauthorizedAccessException("File processing tenant mismatch.");
+        if (await _db.ShSealedFiles.IgnoreQueryFilters().AnyAsync(f => f.TenantId == file.TenantId && f.Id == file.Id, ct)) throw new SealedItemLockedException();
+    }
+
+    private async Task<FileExtractionResult> ExtractPlainFileAsync(FileRecord file, Stream stream, CancellationToken ct)
+    {
+        await RequireOrdinaryFileAsync(file, ct);
+        // Extractors need ordinary bytes and public routing metadata, never the protected sidecar,
+        // original private filename, persisted context bags or object credentials.
+        var projection = new FileRecord { Id = file.Id, TenantId = file.TenantId, ContentType = file.ContentType,
+            SizeBytes = file.SizeBytes, FileName = PortableProcessingPolicy.PublicFileName(file.FileName, file.EncryptedFieldsJson) };
+        var result = await _contentExtractor!.ExtractAsync(projection, stream, ct);
+        await RequireOrdinaryFileAsync(file, ct);
+        if (!result.Success) return result;
+        file.VisionDescription = projection.VisionDescription ?? result.VisionDescription;
+        file.VisionTagsJson = projection.VisionTagsJson ?? result.VisionTagsJson;
+        file.VisionObjectsJson = projection.VisionObjectsJson ?? result.VisionObjectsJson;
+        file.VisionExtractedText = projection.VisionExtractedText ?? result.VisionExtractedText;
+        file.VisionAnalyzedAt = projection.VisionAnalyzedAt; file.AttachmentAIProvider = projection.AttachmentAIProvider;
+        file.LayoutDataJson = projection.LayoutDataJson; file.TextExtractedAt = projection.TextExtractedAt;
+        file.TextExtractionStatus = projection.TextExtractionStatus; file.TextExtractionError = projection.TextExtractionError;
+        return result;
+    }
+
     private static FileMetadataDto MapToDto(FileRecord f) => new(
-        f.Id, f.FileName, f.ContentType, f.SizeBytes, f.BlobUri,
+        f.Id, ProtectedFileMetadata.FileName(f), f.ContentType, f.SizeBytes, f.BlobUri,
         f.TranscriptionText, f.ExtractedText, f.VisionDescription,
         f.BlobMigrationPending, f.CreatedAt, f.UpdatedAt,
         VisionTagsJson: f.VisionTagsJson, VisionObjectsJson: f.VisionObjectsJson,

@@ -120,9 +120,9 @@ public class SelfHostedPgvectorDdlTests
         Assert.DoesNotContain("ExecuteSqlRawAsync(SyncTriggerSql()", applyBody, StringComparison.Ordinal);
     }
 
-    private static string SelfHostedRepoRoot()
+    private static string SelfHostedRepoRoot([System.Runtime.CompilerServices.CallerFilePath] string sourcePath = "")
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        var dir = new DirectoryInfo(Path.GetDirectoryName(sourcePath) ?? AppContext.BaseDirectory);
         while (dir is not null)
         {
             if (File.Exists(Path.Combine(dir.FullName, "Knowz.SelfHosted.sln"))

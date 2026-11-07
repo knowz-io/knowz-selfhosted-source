@@ -69,6 +69,7 @@ builder.Services.AddOptions<SelfHostedOptions>()
 // Tenant provider (must be registered before database so DbContext can resolve it)
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantProvider, HttpTenantProvider>();
+builder.Services.AddScoped<IPortableActorProvider, HttpPortableActorProvider>();
 
 // Azure TokenCredential singleton (SH_ENTERPRISE_MI_SWAP §2.1):
 // single source of truth for Azure SDK auth across the self-hosted stack. Infra-layer
@@ -103,6 +104,11 @@ builder.Services.AddSelfHostedFileStorage(builder.Configuration);
 builder.Services.AddDocumentIntelligence(builder.Configuration);
 builder.Services.AddAttachmentAI(builder.Configuration);
 builder.Services.AddSelfHostedApplication();
+// Explicit, host-pinned local inference is independent of the generic AI provider chain.
+builder.Services.AddSingleton<LocalAiPolicy>();
+builder.Services.AddSingleton<LocalAiConsentStore>();
+builder.Services.AddSingleton<ILocalAiTransport, LocalAiTransport>();
+builder.Services.AddScoped<LocalAiSessionService>();
 
 // Enrichment pipeline: bounded channel + background service
 builder.Services.AddSingleton(Channel.CreateBounded<EnrichmentWorkItem>(
@@ -566,6 +572,7 @@ app.MapAdminEnrichmentEndpoints();
 app.MapBootstrapEndpoints();
 app.MapConfigurationEndpoints();
 app.MapPortabilityEndpoints();
+app.MapEncryptedVaultEndpoints();
 app.MapSyncEndpoints();
 app.MapApiKeyEndpoints();
 app.MapChatEndpoints();

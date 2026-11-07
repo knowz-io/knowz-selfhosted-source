@@ -283,7 +283,7 @@ public class McpSSOService : IMcpSSOService
             return new McpSSOCallbackResult { Success = false, ErrorMessage = "No email found in ID token" };
 
         // 4. Resolve email to API key via platform internal endpoint
-        var apiKey = await ResolveEmailToApiKeyAsync(email, ssoState.Provider);
+        var (apiKey, userId) = await ResolveEmailToApiKeyAsync(email, ssoState.Provider);
 
         if (string.IsNullOrEmpty(apiKey))
             return new McpSSOCallbackResult
@@ -300,6 +300,7 @@ public class McpSSOService : IMcpSSOService
             RequestId = ssoState.RequestId,
             ApiKey = apiKey,
             Email = email,
+            UserId = userId,
         };
     }
 
@@ -516,7 +517,7 @@ public class McpSSOService : IMcpSSOService
         => provider.Equals("Microsoft", StringComparison.OrdinalIgnoreCase) ||
             provider.Equals("MicrosoftEntraId", StringComparison.OrdinalIgnoreCase);
 
-    private async Task<string?> ResolveEmailToApiKeyAsync(string email, string provider)
+    private async Task<(string? ApiKey, string? UserId)> ResolveEmailToApiKeyAsync(string email, string provider)
     {
         var platformUrl = _configuration["Knowz:BaseUrl"]
             ?? throw new InvalidOperationException("Knowz:BaseUrl is not configured");
@@ -525,7 +526,7 @@ public class McpSSOService : IMcpSSOService
         if (string.IsNullOrEmpty(serviceKey))
         {
             _logger.LogError("MCP:ServiceKey not configured -- cannot resolve SSO email to API key");
-            return null;
+            return (null, null);
         }
 
         var httpClient = _httpClientFactory.CreateClient("McpApiClient");
@@ -543,22 +544,27 @@ public class McpSSOService : IMcpSSOService
                 var errorBody = await response.Content.ReadAsStringAsync();
                 _logger.LogWarning("Platform SSO resolve failed: {Status} {Error}",
                     response.StatusCode, errorBody);
-                return null;
+                return (null, null);
             }
 
             var body = await response.Content.ReadFromJsonAsync<JsonElement>();
             if (body.TryGetProperty("data", out var data) &&
                 data.TryGetProperty("apiKey", out var apiKeyEl))
             {
-                return apiKeyEl.GetString();
+                // userId is the stable OIDC subject for /oauth/userinfo; older platform
+                // builds omit it and the caller falls back to a key-derived subject.
+                var userId = data.TryGetProperty("userId", out var userIdEl) && userIdEl.ValueKind == JsonValueKind.String
+                    ? userIdEl.GetString()
+                    : null;
+                return (apiKeyEl.GetString(), userId);
             }
 
-            return null;
+            return (null, null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to resolve SSO email to API key via platform API");
-            return null;
+            return (null, null);
         }
     }
 

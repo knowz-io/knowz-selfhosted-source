@@ -43,6 +43,13 @@ public class VaultSyncStatusDto
     public string LocalVaultName { get; set; } = string.Empty;
     public Guid RemoteVaultId { get; set; }
     public string PlatformApiUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Additive (ADR_G6, #1043 — <c>UI_SH_PeerDestination</c>): the stored connection this link is
+    /// bound to, so the Destinations UI can name the destination without re-matching by URL.
+    /// Null for legacy rows still on the per-link columns.
+    /// </summary>
+    public Guid? PlatformConnectionId { get; set; }
     public string Status { get; set; } = string.Empty;
     public string? LastSyncError { get; set; }
     public DateTime? LastSyncCompletedAt { get; set; }
@@ -118,6 +125,15 @@ public class EstablishSyncLinkRequest
     public Guid RemoteVaultId { get; set; }
     public string PlatformApiUrl { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional (ADR_G6, #1043): bind the link to an existing stored connection. When set, the
+    /// connection must belong to the current tenant and <see cref="PlatformApiUrl"/> /
+    /// <see cref="ApiKey"/> are ignored. When null the orchestrator matches an existing
+    /// connection by normalized URL, creates one when an API key is supplied, and otherwise
+    /// falls back to the legacy per-link columns.
+    /// </summary>
+    public Guid? PlatformConnectionId { get; set; }
 }
 
 /// <summary>

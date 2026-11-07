@@ -171,6 +171,43 @@ export function signChallenge(signingPrivateKey: Uint8Array, challengeBase64: st
 // Envelope decryption (client-side only)
 // ============================================================================
 
+/** Encrypt fresh content/DEK for a supplied X25519 public key. Used for isolated portable exports. */
+export async function encryptEnvelope(
+  publicKey: Uint8Array,
+  plaintext: Uint8Array,
+  aad: Uint8Array,
+): Promise<EncryptedEnvelope> {
+  const ephemeralPrivateKey = crypto.getRandomValues(new Uint8Array(AES_KEY_BYTES))
+  const dek = crypto.getRandomValues(new Uint8Array(AES_KEY_BYTES))
+  let sharedSecret: Uint8Array | undefined
+  let wrappingKey: Uint8Array | undefined
+  try {
+    const ephemeralPublicKey = x25519.getPublicKey(ephemeralPrivateKey)
+    sharedSecret = x25519.getSharedSecret(ephemeralPrivateKey, publicKey)
+    wrappingKey = hkdf(sha256, sharedSecret, ephemeralPublicKey, HKDF_DEK_WRAP_INFO, AES_KEY_BYTES)
+    const contentNonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES))
+    const dekNonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES))
+    const encrypt = async (keyBytes: Uint8Array, nonce: Uint8Array, bytes: Uint8Array, additionalData?: Uint8Array) => {
+      const key = await crypto.subtle.importKey('raw', new Uint8Array(keyBytes), 'AES-GCM', false, ['encrypt'])
+      return bytesToBase64(new Uint8Array(await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: new Uint8Array(nonce), ...(additionalData ? { additionalData: new Uint8Array(additionalData) } : {}), tagLength: 128 }, key, new Uint8Array(bytes),
+      )))
+    }
+    return {
+      ephemeralPublicKey: bytesToBase64(ephemeralPublicKey),
+      encryptedDek: await encrypt(wrappingKey, dekNonce, dek),
+      dekNonce: bytesToBase64(dekNonce),
+      contentNonce: bytesToBase64(contentNonce),
+      ciphertext: await encrypt(dek, contentNonce, plaintext, aad),
+    }
+  } finally {
+    ephemeralPrivateKey.fill(0)
+    dek.fill(0)
+    sharedSecret?.fill(0)
+    wrappingKey?.fill(0)
+  }
+}
+
 /**
  * Decrypt an encrypted envelope using the vault's X25519 private key.
  *
@@ -222,11 +259,15 @@ export async function decryptEnvelopeToBytes(
 
   // Step 3: Unwrap DEK using AES-256-GCM (DEK-wrap layer is NEVER AAD-bound — spec R4)
   // wrapped_dek format: encrypted_dek(32 bytes) || auth_tag(16 bytes) = 48 bytes total
-  const dek = await aesGcmDecrypt(wrappingKey, dekNonce, wrappedDekWithTag)
-
-  // Step 4: Decrypt content using AES-256-GCM, binding the optional content-layer AAD (v2)
-  // ciphertext format: encrypted_content || auth_tag(16 bytes)
-  return aesGcmDecrypt(dek, contentNonce, encryptedPayload, aad)
+  let dek: Uint8Array | undefined
+  try {
+    dek = await aesGcmDecrypt(wrappingKey, dekNonce, wrappedDekWithTag)
+    return await aesGcmDecrypt(dek, contentNonce, encryptedPayload, aad)
+  } finally {
+    sharedSecret.fill(0)
+    wrappingKey.fill(0)
+    dek?.fill(0)
+  }
 }
 
 export async function decryptEncryptedFieldSet(

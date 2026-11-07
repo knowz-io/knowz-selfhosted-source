@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Knowz.MCP.Helpers;
 using Knowz.MCP.Services;
+using Knowz.MCP.Services.Session;
 
 namespace Knowz.MCP.Endpoints;
 
@@ -24,7 +25,9 @@ public static class OAuthEndpoints
                 grant_types_supported = new[] { "authorization_code", "client_credentials", "refresh_token" },
                 code_challenge_methods_supported = new[] { "S256" },
                 token_endpoint_auth_methods_supported = new[] { "client_secret_post", "client_secret_basic", "none" },
-                scopes_supported = new[] { "mcp:read", "mcp:write" }
+                // openid/email are identity scopes served by /oauth/userinfo. The protected-resource
+                // metadata below deliberately stays mcp:* only — those are the RESOURCE's scopes.
+                scopes_supported = new[] { "openid", "email", "mcp:read", "mcp:write" }
             });
         });
 
@@ -51,7 +54,11 @@ public static class OAuthEndpoints
         app.MapGet("/.well-known/oauth-protected-resource/mcp", (HttpContext context) =>
             Results.Json(buildProtectedResourceMetadata(ApiKeyValidator.GetBaseUrl(context))));
 
-        // OpenID Connect Discovery fallback
+        // OpenID Connect Discovery. Clients that gate features on OIDC (e.g. OpenAI Apps
+        // enterprise domain restrictions) need userinfo_endpoint, the openid + email scopes and
+        // a verified-email claim advertised here. No jwks_uri / id_token_signing_alg_values:
+        // access tokens are opaque and no ID token is issued, so there is no key set to
+        // publish — identity is served exclusively by the userinfo endpoint.
         app.MapGet("/.well-known/openid-configuration", (HttpContext context) =>
         {
             var baseUrl = ApiKeyValidator.GetBaseUrl(context);
@@ -60,10 +67,91 @@ public static class OAuthEndpoints
                 issuer = baseUrl,
                 authorization_endpoint = $"{baseUrl}/oauth/authorize",
                 token_endpoint = $"{baseUrl}/oauth/token",
+                userinfo_endpoint = $"{baseUrl}/oauth/userinfo",
+                registration_endpoint = $"{baseUrl}/oauth/register",
                 response_types_supported = new[] { "code" },
                 grant_types_supported = new[] { "authorization_code", "client_credentials", "refresh_token" },
-                scopes_supported = new[] { "mcp:read", "mcp:write" },
-                token_endpoint_auth_methods_supported = new[] { "client_secret_post", "client_secret_basic" }
+                subject_types_supported = new[] { "public" },
+                scopes_supported = new[] { "openid", "email", "mcp:read", "mcp:write" },
+                claims_supported = new[] { "sub", "email", "email_verified" },
+                code_challenge_methods_supported = new[] { "S256" },
+                token_endpoint_auth_methods_supported = new[] { "client_secret_post", "client_secret_basic", "none" }
+            });
+        });
+
+        // OpenID Connect UserInfo. Lives under /oauth so McpAuthMiddleware passes it through;
+        // the endpoint enforces the Bearer credential itself. Accepts an opaque access token
+        // minted by /oauth/token, or a raw API key (validated against the backend every call).
+        app.MapMethods("/oauth/userinfo", new[] { "GET", "POST" }, async (
+            HttpContext context,
+            IOAuthService oauthService,
+            IHttpClientFactory httpClientFactory) =>
+        {
+            var sessionStore = context.RequestServices.GetRequiredService<IMcpSessionStore>();
+            IResult InvalidToken(string description)
+            {
+                context.Response.Headers["WWW-Authenticate"] = "Bearer error=\"invalid_token\"";
+                return Results.Json(new { error = "invalid_token", error_description = description }, statusCode: 401);
+            }
+
+            var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+            var token = !string.IsNullOrWhiteSpace(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? authHeader.Substring(7).Trim()
+                : null;
+
+            if (string.IsNullOrEmpty(token))
+                return InvalidToken("Missing access token. Include Authorization: Bearer <access_token>.");
+
+            var isRawApiKey = ApiKeyValidator.IsValidApiKey(token);
+            var apiKey = isRawApiKey ? token : sessionStore.GetApiKey(token);
+            if (string.IsNullOrWhiteSpace(apiKey))
+                return InvalidToken("Access token is invalid, expired or revoked.");
+
+            var claims = isRawApiKey ? null : oauthService.TryGetUserInfo(token);
+
+            // Tokens minted without claims (client_credentials, issued before OIDC support, or a
+            // raw API key): best-effort fill from the backend, stored so it happens once per token.
+            if (string.IsNullOrEmpty(claims?.Email))
+            {
+                ApiKeyOwner owner;
+                try
+                {
+                    var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
+                    owner = await ValidateApiKeyAsync(httpClientFactory.CreateClient("McpApiClient"), configuration, apiKey);
+                }
+                catch (Exception)
+                {
+                    return Results.Json(new
+                    {
+                        error = "temporarily_unavailable",
+                        error_description = "Unable to reach the authentication service. Please try again."
+                    }, statusCode: 503);
+                }
+
+                if (!owner.IsValid)
+                    return InvalidToken("The credential behind this access token is no longer valid.");
+
+                claims = BuildClaims(apiKey, claims?.Sub ?? owner.UserId, owner.Email);
+                if (claims.Email != null && !isRawApiKey)
+                    oauthService.StoreUserInfo(token, claims);
+            }
+
+            // Never answer 200 without a verified email — callers use this claim for
+            // domain-based access decisions, so a partial document is worse than a refusal.
+            if (string.IsNullOrEmpty(claims.Email) || !claims.EmailVerified)
+            {
+                return Results.Json(new
+                {
+                    error = "access_denied",
+                    error_description = "No verified email address is available for this account."
+                }, statusCode: 403);
+            }
+
+            return Results.Json(new
+            {
+                sub = claims.Sub,
+                email = claims.Email,
+                email_verified = claims.EmailVerified
             });
         });
 
@@ -279,6 +367,7 @@ public static class OAuthEndpoints
             var apiBaseUrl = configuration["Knowz:BaseUrl"]
                 ?? throw new InvalidOperationException("Knowz:BaseUrl is not configured");
             var client = httpClientFactory.CreateClient("McpApiClient");
+            OidcUserClaims? userClaims = null;
 
             // Helper to render login page with error
             IResult RenderError(string error)
@@ -324,6 +413,12 @@ public static class OAuthEndpoints
 
                     if (string.IsNullOrEmpty(apiKey))
                         return RenderError("Authentication succeeded but no API key was returned.");
+
+                    // The password just proved ownership of this Knowz account, so its email is
+                    // verified. Prefer the backend's canonical email/userId; older builds that omit
+                    // them still leave the submitted email.
+                    var owner = ReadApiKeyOwner(body);
+                    userClaims = BuildClaims(apiKey, owner.UserId, owner.Email ?? email);
                 }
                 catch (Exception)
                 {
@@ -337,33 +432,13 @@ public static class OAuthEndpoints
                     return RenderError("Invalid API key format. Keys must start with kz_, ukz_, or ksh_ and be at least 20 characters.");
 
                 // Validate API key by calling the backend API
-                var validationEndpoint = configuration["MCP:ApiKeyValidationEndpoint"]
-                    ?? (backendMode.Equals("selfhosted", StringComparison.OrdinalIgnoreCase)
-                        ? "/api/v1/auth/me"
-                        : "/api/v1/auth/validate-key");
-
                 try
                 {
-                    HttpResponseMessage response;
-
-                    if (validationEndpoint == "/api/v1/auth/validate-key")
-                    {
-                        // Platform mode: use dedicated validation endpoint (POST with body)
-                        // This endpoint checks all key sources including TenantApiKeys table
-                        var request = new HttpRequestMessage(HttpMethod.Post, $"{apiBaseUrl}{validationEndpoint}");
-                        request.Content = JsonContent.Create(new { apiKey });
-                        response = await client.SendAsync(request);
-                    }
-                    else
-                    {
-                        // Self-hosted or custom endpoint: use GET with X-Api-Key header (existing behavior)
-                        var request = new HttpRequestMessage(HttpMethod.Get, $"{apiBaseUrl}{validationEndpoint}");
-                        request.Headers.Add("X-Api-Key", apiKey);
-                        response = await client.SendAsync(request);
-                    }
-
-                    if (!response.IsSuccessStatusCode)
+                    var owner = await ValidateApiKeyAsync(client, configuration, apiKey);
+                    if (!owner.IsValid)
                         return RenderError("Invalid or expired API key. Please check your key and try again.");
+
+                    userClaims = BuildClaims(apiKey, owner.UserId, owner.Email);
                 }
                 catch (Exception)
                 {
@@ -382,7 +457,7 @@ public static class OAuthEndpoints
             string code;
             try
             {
-                code = oauthService.CompleteAuthorization(requestId, apiKey!);
+                code = oauthService.CompleteAuthorization(requestId, apiKey!, userClaims);
             }
             catch (InvalidOperationException)
             {
@@ -503,7 +578,9 @@ public static class OAuthEndpoints
             string authCode;
             try
             {
-                authCode = oauthService.CompleteAuthorization(result.RequestId!, result.ApiKey!);
+                // The identity provider verified this email during the OIDC handshake.
+                authCode = oauthService.CompleteAuthorization(result.RequestId!, result.ApiKey!,
+                    BuildClaims(result.ApiKey!, result.UserId, result.Email));
             }
             catch (InvalidOperationException)
             {
@@ -516,6 +593,94 @@ public static class OAuthEndpoints
         });
 
         return app;
+    }
+
+    /// <summary>Who a validated API key belongs to, as far as the backend told us.</summary>
+    private sealed record ApiKeyOwner(bool IsValid, string? UserId, string? Email);
+
+    /// <summary>
+    /// Validates an API key against the backend and reads back its owner.
+    /// Platform mode: POST /api/v1/auth/validate-key (checks all key sources incl. TenantApiKeys).
+    /// Self-hosted or custom endpoint: GET with X-Api-Key header.
+    /// Transport failures propagate so callers can tell "invalid" from "unreachable".
+    /// </summary>
+    private static async Task<ApiKeyOwner> ValidateApiKeyAsync(HttpClient client, IConfiguration configuration, string apiKey)
+    {
+        var apiBaseUrl = configuration["Knowz:BaseUrl"]
+            ?? throw new InvalidOperationException("Knowz:BaseUrl is not configured");
+        var backendMode = configuration["MCP:BackendMode"] ?? "proxy";
+        var validationEndpoint = configuration["MCP:ApiKeyValidationEndpoint"]
+            ?? (backendMode.Equals("selfhosted", StringComparison.OrdinalIgnoreCase)
+                ? "/api/v1/auth/me"
+                : "/api/v1/auth/validate-key");
+
+        HttpRequestMessage request;
+        if (validationEndpoint == "/api/v1/auth/validate-key")
+        {
+            request = new HttpRequestMessage(HttpMethod.Post, $"{apiBaseUrl}{validationEndpoint}")
+            {
+                Content = JsonContent.Create(new { apiKey })
+            };
+        }
+        else
+        {
+            request = new HttpRequestMessage(HttpMethod.Get, $"{apiBaseUrl}{validationEndpoint}");
+            request.Headers.Add("X-Api-Key", apiKey);
+        }
+
+        var response = await client.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+            return new ApiKeyOwner(false, null, null);
+
+        try
+        {
+            return ReadApiKeyOwner(await response.Content.ReadFromJsonAsync<JsonElement>());
+        }
+        catch (JsonException)
+        {
+            // The key is valid; an unreadable body only costs us the optional owner details.
+            return new ApiKeyOwner(true, null, null);
+        }
+    }
+
+    /// <summary>
+    /// Reads owner details from the three backend shapes in use: platform validate-key
+    /// (<c>data.tenant.email</c>), authenticate / sso-resolve (<c>data.email</c>, <c>data.userId</c>)
+    /// and self-hosted /auth/me (root <c>email</c>, <c>id</c>). A tenant id is never read as a
+    /// user id — every member of a tenant would otherwise share one OIDC subject.
+    /// </summary>
+    private static ApiKeyOwner ReadApiKeyOwner(JsonElement body)
+    {
+        static string? ReadString(JsonElement obj, string name) =>
+            obj.ValueKind == JsonValueKind.Object &&
+            obj.TryGetProperty(name, out var el) &&
+            el.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(el.GetString())
+                ? el.GetString()
+                : null;
+
+        var user = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("data", out var data) ? data : body;
+        var tenant = user.ValueKind == JsonValueKind.Object && user.TryGetProperty("tenant", out var tenantEl) ? tenantEl : default;
+
+        return new ApiKeyOwner(
+            true,
+            ReadString(user, "userId") ?? ReadString(user, "id"),
+            ReadString(user, "email") ?? ReadString(tenant, "email"));
+    }
+
+    /// <summary>
+    /// Every caller reaches this only after Knowz (password / validated key) or the identity
+    /// provider (SSO) vouched for the account, so a present email is a verified one.
+    /// </summary>
+    private static OidcUserClaims BuildClaims(string apiKey, string? userId, string? email)
+    {
+        var normalizedEmail = string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();
+        return new OidcUserClaims
+        {
+            Sub = string.IsNullOrWhiteSpace(userId) ? OidcUserClaims.SubjectFromApiKey(apiKey) : userId,
+            Email = normalizedEmail,
+            EmailVerified = normalizedEmail != null
+        };
     }
 
     /// <summary>

@@ -60,23 +60,60 @@ public class PlatformConnectionServiceTests : IDisposable
             _db, _tenantProvider, _dpp, _urlValidator, factory, _logger);
     }
 
-    [Fact]
-    public async Task UpsertAsync_NewRow_EncryptsKey_AndStoresLast4()
+    [Theory]
+    [InlineData("ukz_")]
+    [InlineData("kz_")]
+    [InlineData("ksh_")]
+    public async Task UpsertAsync_NewRow_EncryptsKey_AndStoresPrefixAndLast4(string prefix)
     {
         var service = CreateService();
-        var req = new UpsertPlatformConnectionRequest("https://api.knowz.io", "Prod", SampleApiKey);
+        var apiKey = prefix + "ABCD1234EFGH5678IJKLa9F2";
+        var req = new UpsertPlatformConnectionRequest("https://api.knowz.io", "Prod", apiKey);
 
         var dto = await service.UpsertAsync(req, createdByUserId: Guid.NewGuid());
 
         var row = await _db.PlatformConnections.SingleAsync();
-        Assert.NotEqual(SampleApiKey, row.ApiKeyProtected); // ciphertext != plaintext
-        Assert.True(row.ApiKeyProtected.Length > SampleApiKey.Length);
-        Assert.Equal(SampleApiKey[^4..], row.ApiKeyLast4);
+        Assert.NotEqual(apiKey, row.ApiKeyProtected); // ciphertext != plaintext
+        Assert.True(row.ApiKeyProtected.Length > apiKey.Length);
+        Assert.Equal(prefix + "a9F2", row.ApiKeyLast4);
+        Assert.True(row.ApiKeyLast4.Length <= 8);
         Assert.Equal("https://api.knowz.io", row.PlatformApiUrl);
         Assert.Equal(TenantA, row.TenantId);
 
-        Assert.Equal("ukz_****a9F2", dto.ApiKeyMask);
+        Assert.Equal(prefix + "****a9F2", dto.ApiKeyMask);
         Assert.True(dto.HasApiKey);
+        Assert.Equal(apiKey, (await service.ResolveForOutboundCallAsync())!.Value.ApiKeyPlaintext);
+        Assert.Equal(dto.ApiKeyMask, (await service.GetAsync())!.ApiKeyMask);
+        Assert.DoesNotContain(apiKey, JsonSerializer.Serialize(dto));
+    }
+
+    [Fact]
+    public async Task GetAsync_LegacyFourCharacterSuffix_DefaultsToPersonalKeyMask()
+    {
+        var service = CreateService();
+        await service.UpsertAsync(new UpsertPlatformConnectionRequest("https://api.knowz.io", null, SampleApiKey), Guid.NewGuid());
+        var row = await _db.PlatformConnections.SingleAsync();
+        row.ApiKeyLast4 = "a9F2";
+        await _db.SaveChangesAsync();
+
+        Assert.Equal("ukz_****a9F2", (await service.GetAsync())!.ApiKeyMask);
+    }
+
+    [Theory]
+    [InlineData("ukz_")]
+    [InlineData("kz_")]
+    [InlineData("ksh_")]
+    public async Task UpsertAsync_RotatedKey_UpdatesPrefixAndLast4(string prefix)
+    {
+        var service = CreateService();
+        await service.UpsertAsync(new UpsertPlatformConnectionRequest("https://api.knowz.io", null, SampleApiKey), Guid.NewGuid());
+
+        var apiKey = prefix + "ROTATEDKEY1234";
+        var dto = await service.UpsertAsync(new UpsertPlatformConnectionRequest("https://api.knowz.io", null, apiKey), Guid.NewGuid());
+
+        Assert.Equal(prefix + "1234", (await _db.PlatformConnections.SingleAsync()).ApiKeyLast4);
+        Assert.Equal(prefix + "****1234", dto.ApiKeyMask);
+        Assert.Equal(apiKey, (await service.ResolveForOutboundCallAsync())!.Value.ApiKeyPlaintext);
     }
 
     [Fact]

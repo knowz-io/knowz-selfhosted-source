@@ -9,13 +9,13 @@ Knowz Self-Hosted runs the Knowz knowledge model on your own host: your database
 These instructions target the **Knowz CLI 0.5.0 preview**. The CLI version and selfhosted image version are separate. `knowz up` opens local browser setup, pulls published GHCR **release images**, and starts the web UI. No source checkout or build is required.
 
 ```bash
-npx @knowzai/cli@0.5.0 up
+npx @knowzai/cli@0.5.6 up
 ```
 
 Or install once, then run:
 
 ```bash
-npm i -g @knowzai/cli@0.5.0
+npm i -g @knowzai/cli@0.5.6
 knowz up
 ```
 
@@ -238,7 +238,7 @@ Use `knowz up` to start or reconnect to an existing installation. Upgrade delibe
 
 ```bash
 knowz backup --edition selfhosted --encrypt --out knowz-before-upgrade.tar.gz.enc
-knowz runtime upgrade --edition selfhosted --version 0.16.2
+knowz runtime upgrade --edition selfhosted --version 0.17.0
 knowz runtime status --edition selfhosted
 ```
 
@@ -304,7 +304,7 @@ The API exposes the 21 endpoint groups listed below. Swagger is off in the shipp
 
 ## MCP Server
 
-The MCP server exposes 26 tools for AI assistants to interact with your knowledge base. This edition advertises only the tools it can actually run — the graph, todo, document-windowing, and async-amend tools of Knowz Cloud are not present. Source of truth: `src/Knowz.MCP/Tools/KnowzProxyTools.cs`; `scripts/check-readme-mcp-tools.sh` keeps this list honest.
+The MCP server exposes 26 tools for AI assistants to interact with your knowledge base. This edition advertises only the tools it can actually run — the graph, todo, document-windowing, async-amend and Agent Workspace tools of Knowz Cloud are not present. Source of truth: `src/Knowz.MCP/Tools/KnowzProxyTools.cs`; `scripts/check-readme-mcp-tools.sh` keeps this list honest.
 
 ### Connecting Claude Desktop / Cursor
 
@@ -482,7 +482,7 @@ docker compose up --build
 
 | Document | Description |
 |----------|-------------|
-| [Quickstart Guide](docs/QUICKSTART.md) | Customer install via `npx @knowzai/cli@0.5.0 up` / `knowz up` (release images, no source) |
+| [Quickstart Guide](docs/QUICKSTART.md) | Customer install via `npx @knowzai/cli@0.5.6 up` / `knowz up` (release images, no source) |
 | [Configuration Reference](docs/CONFIGURATION.md) | All environment variables and settings |
 | [Architecture Overview](docs/ARCHITECTURE.md) | System design, service diagram, data flow |
 | [Contributing](CONTRIBUTING.md) | Development setup, PR process, coding standards |

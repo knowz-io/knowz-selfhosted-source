@@ -48,6 +48,48 @@ public class SelfHostedToolBackendContractTests
 
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
+    [Theory]
+    [InlineData("create_knowledge", "POST")]
+    [InlineData("update_knowledge", "PUT")]
+    public async Task KnowledgeWrite_EnrichmentTrueSurvivesRestMapping(string toolName, string method)
+    {
+        var (backend, handler) = Build();
+        var knowledgeId = Guid.NewGuid().ToString();
+
+        await backend.ExecuteToolAsync(toolName, Args(
+            ("id", knowledgeId), ("content", "Searchable content"), ("enrichment", true)));
+
+        var request = handler.Requests.Should().ContainSingle().Subject;
+        request.Method.Method.Should().Be(method);
+        request.Path.Should().Be(toolName == "create_knowledge"
+            ? "/api/v1/knowledge" : $"/api/v1/knowledge/{knowledgeId}");
+        var body = Parse(request.Body!);
+        body.TryGetProperty("enrichment", out var enrichment).Should().BeTrue();
+        enrichment.GetBoolean().Should().BeTrue();
+        body.GetProperty("content").GetString().Should().Be("Searchable content");
+    }
+
+    [Theory]
+    [InlineData("create_knowledge", false)]
+    [InlineData("update_knowledge", false)]
+    [InlineData("create_knowledge", true)]
+    [InlineData("update_knowledge", true)]
+    public async Task KnowledgeWrite_UnsupportedEnrichmentOffRejectsBeforeHttpWrite(string toolName, bool jsonArgument)
+    {
+        var (backend, handler) = Build();
+        object enrichment = jsonArgument ? JsonSerializer.SerializeToElement(false) : false;
+
+        var result = await backend.ExecuteToolAsync(toolName, Args(
+            ("id", Guid.NewGuid().ToString()), ("content", "Searchable content"), ("enrichment", enrichment)));
+
+        handler.Requests.Should().BeEmpty("the standalone engine cannot honor enrichment-off yet");
+        var response = Parse(result);
+        response.GetProperty("code").GetString().Should().Be("unavailable_in_selfhosted");
+        response.GetProperty("tool").GetString().Should().Be(toolName);
+        response.GetProperty("parameter").GetString().Should().Be("enrichment");
+        response.GetProperty("error").GetString().Should().Contain("enrichment=false");
+    }
+
     // ---- VERIFY-T3 -------------------------------------------------------
 
     [Theory]
@@ -57,6 +99,10 @@ public class SelfHostedToolBackendContractTests
     [InlineData("update_todo_status")]
     [InlineData("get_document_window")]
     [InlineData("inspect_document_map")]
+    [InlineData("get_agent")]
+    [InlineData("list_agents")]
+    [InlineData("send_agent_message")]
+    [InlineData("wake_agent")]
     [InlineData("search_document_text")]
     [InlineData("graph_query")]
     [InlineData("amend_knowledge_async")]

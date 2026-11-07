@@ -3,6 +3,7 @@ namespace Knowz.SelfHosted.Application.Services;
 using System.IO.Compression;
 using System.Text.Json;
 using Knowz.Core.Configuration;
+using Knowz.Core.Entities;
 using Knowz.Core.Interfaces;
 using Knowz.Core.Portability;
 using Knowz.Core.Schema;
@@ -35,41 +36,140 @@ public class PortableExportService : IPortableExportService
         _logger = logger;
     }
 
-    public async Task<PortableExportPackage> ExportAsync(CancellationToken ct = default)
+    public Task<PortableExportPackage> ExportAsync(CancellationToken ct = default)
+        => ExportAsync(new ExportScope { Type = ExportScopeType.Tenant }, ct);
+
+    public Task<PortableExportPackage> ExportAsync(ExportScope scope, CancellationToken ct = default) => ExportMetadataAsync(scope, false, ct);
+
+    internal async Task<PortableExportPackage> ExportMetadataAsync(ExportScope scope, bool includeSealed, CancellationToken ct)
     {
-        _logger.LogInformation("Starting portable export for tenant {TenantId}", _tenantProvider.TenantId);
+        ArgumentNullException.ThrowIfNull(scope);
+        ValidateScope(scope);
+        var scoped = scope.Type != ExportScopeType.Tenant;
+        var tenantId = _tenantProvider.TenantId;
+        var selectedVaultIds = (scope.VaultIds ?? []).ToHashSet();
+        var selectedItemIds = (scope.KnowledgeItemIds ?? []).ToHashSet();
+        var vaultScope = scope.Type is ExportScopeType.Vault or ExportScopeType.VaultWithChildren;
 
-        // Query all entities with includes for junctions (AsNoTracking for read-only)
-        var knowledge = await _db.KnowledgeItems
-            .Include(k => k.KnowledgeVaults)
-            .Include(k => k.KnowledgePersons)
-            .Include(k => k.KnowledgeLocations)
-            .Include(k => k.KnowledgeEvents)
-            .Include(k => k.Tags)
-            .AsNoTracking()
-            .ToListAsync(ct);
+        _logger.LogInformation("Starting portable export for tenant {TenantId}, scope {ScopeType}", tenantId, scope.Type);
 
-        var vaults = await _db.Vaults
-            .Include(v => v.VaultPersons)
-            .AsNoTracking()
-            .ToListAsync(ct);
-        var topics = await _db.Topics.AsNoTracking().ToListAsync(ct);
-        var tags = await _db.Tags.AsNoTracking().ToListAsync(ct);
-        var persons = await _db.Persons.AsNoTracking().ToListAsync(ct);
-        var locations = await _db.Locations.AsNoTracking().ToListAsync(ct);
-        var events = await _db.Events.AsNoTracking().ToListAsync(ct);
-        var inboxItems = await _db.InboxItems.AsNoTracking().ToListAsync(ct);
-        var comments = await _db.Comments
-            .AsNoTracking()
-            .ToListAsync(ct);
+        // The same tenant/soft-delete filters and DTO projections serve whole-tenant and scoped export.
+        var vaults = await _db.Vaults.Include(v => v.VaultPersons).AsNoTracking().ToListAsync(ct);
+        if (vaultScope)
+        {
+            if (selectedVaultIds.Except(vaults.Select(v => v.Id)).Any())
+                throw new ArgumentException("One or more selected vaults are unavailable in this tenant.");
+            if (scope.Type == ExportScopeType.VaultWithChildren)
+            {
+                bool changed;
+                do
+                {
+                    changed = false;
+                    foreach (var vault in vaults.Where(v => v.ParentVaultId.HasValue && selectedVaultIds.Contains(v.ParentVaultId.Value)))
+                        changed |= selectedVaultIds.Add(vault.Id);
+                } while (changed);
+            }
+        }
+
+        var knowledgeQuery = _db.KnowledgeItems.AsQueryable();
+        if (vaultScope)
+            knowledgeQuery = knowledgeQuery.Where(k => k.KnowledgeVaults.Any(kv => kv.TenantId == tenantId && selectedVaultIds.Contains(kv.VaultId)));
+        else if (scoped)
+            knowledgeQuery = knowledgeQuery.Where(k => selectedItemIds.Contains(k.Id));
+        var knowledge = await knowledgeQuery
+            .Include(k => k.KnowledgeVaults).Include(k => k.KnowledgePersons)
+            .Include(k => k.KnowledgeLocations).Include(k => k.KnowledgeEvents).Include(k => k.Tags)
+            .AsNoTracking().ToListAsync(ct);
+        if (scoped && !vaultScope && selectedItemIds.Except(knowledge.Select(k => k.Id)).Any())
+            throw new ArgumentException("One or more selected knowledge items are unavailable in this tenant.");
+
+        var knowledgeIds = knowledge.Select(k => k.Id).ToHashSet();
+        if (!includeSealed && (knowledge.Any(k => k.PortableRecoveryState != null || !string.IsNullOrWhiteSpace(k.EncryptedFieldsJson)) || await _db.ShSealedKnowledge.AnyAsync(row => knowledgeIds.Contains(row.KnowledgeId), ct)))
+            throw new SealedItemLockedException();
+        if (scoped)
+        {
+            if (!vaultScope)
+                selectedVaultIds = knowledge.SelectMany(k => k.KnowledgeVaults).Where(kv => kv.TenantId == tenantId).Select(kv => kv.VaultId).ToHashSet();
+            vaults = vaults.Where(v => selectedVaultIds.Contains(v.Id)).ToList();
+        }
+        var vaultIds = vaults.Select(v => v.Id).ToHashSet();
+        var topicIds = knowledge.Where(k => k.TopicId.HasValue).Select(k => k.TopicId!.Value).ToHashSet();
+        var tagIds = knowledge.SelectMany(k => k.Tags).Select(t => t.Id).ToHashSet();
+        var personIds = knowledge.SelectMany(k => k.KnowledgePersons).Select(p => p.PersonId)
+            .Concat(vaults.SelectMany(v => v.VaultPersons).Select(p => p.PersonId)).ToHashSet();
+        var locationIds = knowledge.SelectMany(k => k.KnowledgeLocations).Select(l => l.LocationId).ToHashSet();
+        var eventIds = knowledge.SelectMany(k => k.KnowledgeEvents).Select(e => e.EventId).ToHashSet();
+        var topics = await _db.Topics.Where(t => !scoped || topicIds.Contains(t.Id)).AsNoTracking().ToListAsync(ct);
+        var tags = await _db.Tags.Where(t => !scoped || tagIds.Contains(t.Id)).AsNoTracking().ToListAsync(ct);
+        var persons = await _db.Persons.Where(p => !scoped || personIds.Contains(p.Id)).AsNoTracking().ToListAsync(ct);
+        var locations = await _db.Locations.Where(l => !scoped || locationIds.Contains(l.Id)).AsNoTracking().ToListAsync(ct);
+        var events = await _db.Events.Where(e => !scoped || eventIds.Contains(e.Id)).AsNoTracking().ToListAsync(ct);
+        var inboxItems = await _db.InboxItems.Where(i => !scoped).AsNoTracking().ToListAsync(ct);
+        var comments = await _db.Comments.Where(c => !scoped || knowledgeIds.Contains(c.KnowledgeId)).AsNoTracking().ToListAsync(ct);
+        var commentIds = comments.Select(c => c.Id).ToHashSet();
+        var encryptedCommentIds = await _db.ShSealedComments.Where(c => !scoped || knowledgeIds.Contains(c.KnowledgeId)).Select(c => c.Id).ToListAsync(ct);
+        var allCommentIds = commentIds.Concat(encryptedCommentIds).ToArray();
+        var graphFiles = _db.ShSealedAttachments.Where(a => !scoped ||
+            a.KnowledgeId.HasValue && knowledgeIds.Contains(a.KnowledgeId.Value) || a.CommentId.HasValue && allCommentIds.Contains(a.CommentId.Value)).Select(a => a.FileRecordId);
+        if (!includeSealed && (encryptedCommentIds.Count > 0 || await graphFiles.AnyAsync(ct) || await _db.ShSealedFiles.AnyAsync(f => !scoped || f.KnowledgeId.HasValue && knowledgeIds.Contains(f.KnowledgeId.Value), ct)))
+            throw new SealedItemLockedException();
         var fileRecords = await _db.FileRecords
-            .Include(f => f.Attachments)
-            .AsNoTracking()
-            .ToListAsync(ct);
-        var archives = await _db.PortableArchives
-            .Where(a => a.TenantId == _tenantProvider.TenantId)
-            .AsNoTracking()
-            .ToListAsync(ct);
+            .Where(f => !scoped || graphFiles.Contains(f.Id) || f.Attachments.Any(a => a.TenantId == tenantId &&
+                (a.KnowledgeId.HasValue && knowledgeIds.Contains(a.KnowledgeId.Value) ||
+                 a.CommentId.HasValue && commentIds.Contains(a.CommentId.Value))))
+            .Include(f => f.Attachments).AsNoTracking().ToListAsync(ct);
+        var pendingAncestors = fileRecords.Where(f => f.PreviousFileRecordId.HasValue).Select(f => f.PreviousFileRecordId!.Value).Except(fileRecords.Select(f => f.Id)).ToList();
+        while (pendingAncestors.Count > 0)
+        {
+            var ancestors = await _db.FileRecords.Where(f => pendingAncestors.Contains(f.Id)).Include(f => f.Attachments).AsNoTracking().ToListAsync(ct);
+            fileRecords.AddRange(ancestors);
+            pendingAncestors = ancestors.Where(f => f.PreviousFileRecordId.HasValue).Select(f => f.PreviousFileRecordId!.Value).Except(fileRecords.Select(f => f.Id)).ToList();
+        }
+        if (!includeSealed && fileRecords.Any(f => f.EncryptedFieldsJson != null)) throw new SealedItemLockedException();
+        // Opaque archives/inbox have no reliable vault/item ownership: never include them in a scoped package.
+        var archives = await _db.PortableArchives.Where(a => !scoped && a.TenantId == tenantId).AsNoTracking().ToListAsync(ct);
+
+        if (scoped)
+        {
+            topicIds = topics.Select(t => t.Id).ToHashSet();
+            tagIds = tags.Select(t => t.Id).ToHashSet();
+            personIds = persons.Select(p => p.Id).ToHashSet();
+            locationIds = locations.Select(l => l.Id).ToHashSet();
+            eventIds = events.Select(e => e.Id).ToHashSet();
+            foreach (var item in knowledge)
+            {
+                item.KnowledgeVaults = item.KnowledgeVaults.Where(kv => kv.TenantId == tenantId && vaultIds.Contains(kv.VaultId)).ToList();
+                item.KnowledgePersons = item.KnowledgePersons.Where(p => personIds.Contains(p.PersonId)).ToList();
+                item.KnowledgeLocations = item.KnowledgeLocations.Where(l => locationIds.Contains(l.LocationId)).ToList();
+                item.KnowledgeEvents = item.KnowledgeEvents.Where(e => eventIds.Contains(e.EventId)).ToList();
+                item.Tags = item.Tags.Where(t => tagIds.Contains(t.Id)).ToList();
+                if (item.TopicId.HasValue && !topicIds.Contains(item.TopicId.Value)) item.TopicId = null;
+            }
+            foreach (var vault in vaults)
+            {
+                if (vault.ParentVaultId.HasValue && !vaultIds.Contains(vault.ParentVaultId.Value)) vault.ParentVaultId = null;
+                vault.VaultPersons = vault.VaultPersons.Where(p => personIds.Contains(p.PersonId)).ToList();
+            }
+            foreach (var comment in comments)
+                if (comment.ParentCommentId.HasValue && !commentIds.Contains(comment.ParentCommentId.Value)) comment.ParentCommentId = null;
+            foreach (var file in fileRecords)
+            {
+                // A shared binary is included once; its other attachment owners are not exposed.
+                file.Attachments = file.Attachments.Where(a => a.TenantId == tenantId &&
+                    (a.KnowledgeId.HasValue || a.CommentId.HasValue) &&
+                    (!a.KnowledgeId.HasValue || knowledgeIds.Contains(a.KnowledgeId.Value)) &&
+                    (!a.CommentId.HasValue || commentIds.Contains(a.CommentId.Value))).ToList();
+            }
+            var graphFileIds = (await graphFiles.ToListAsync(ct)).ToHashSet();
+            var allowedFileIds = fileRecords.Where(f => f.Attachments.Count > 0 || graphFileIds.Contains(f.Id)).Select(f => f.Id).ToHashSet();
+            var byId = fileRecords.ToDictionary(f => f.Id);
+            foreach (var id in allowedFileIds.ToArray())
+            {
+                var cursor = byId[id];
+                while (cursor.PreviousFileRecordId is Guid previous && byId.TryGetValue(previous, out var ancestor) && allowedFileIds.Add(previous)) cursor = ancestor;
+            }
+            fileRecords = fileRecords.Where(f => allowedFileIds.Contains(f.Id)).ToList();
+        }
 
         // Map to portable DTOs
         var portableVaults = vaults.Select(v =>
@@ -170,6 +270,8 @@ public class PortableExportService : IPortableExportService
             return dto;
         }).ToList();
 
+        var availableLocationIds = locations.Select(l => l.Id).ToHashSet();
+        var availableEventIds = events.Select(e => e.Id).ToHashSet();
         var portableKnowledge = knowledge.Select(k =>
         {
             var primaryVaultJunction = k.KnowledgeVaults.FirstOrDefault(kv => kv.IsPrimary);
@@ -180,6 +282,8 @@ public class PortableExportService : IPortableExportService
                 Content = k.Content,
                 Summary = k.Summary,
                 BriefSummary = k.BriefSummary,
+                EncryptedFieldsJson = k.EncryptedFieldsJson,
+                OriginalItemId = k.OriginalItemId,
                 Type = k.Type,
                 Source = k.Source,
                 FilePath = k.FilePath,
@@ -205,6 +309,8 @@ public class PortableExportService : IPortableExportService
                 }).ToList()
             };
             MergePlatformData(k.PlatformData, d => dto.ExtensionData = d);
+            PortableKnowledgeLinks.Project(k, dto, availableLocationIds, availableEventIds);
+            ProtectedKnowledgeFields.RedactCompanions(dto);
             return dto;
         }).ToList();
 
@@ -234,7 +340,9 @@ public class PortableExportService : IPortableExportService
             var dto = new PortableFileRecord
             {
                 Id = f.Id,
-                FileName = f.FileName,
+                FileName = ProtectedFileMetadata.FileName(f),
+                OriginalFileId = f.OriginalFileId ?? f.Id, EncryptedFieldsJson = f.EncryptedFieldsJson,
+                FileVersion = f.FileVersion, RootFileRecordId = f.RootFileRecordId, PreviousFileRecordId = f.PreviousFileRecordId, IsCurrentVersion = f.IsCurrentVersion,
                 ContentType = f.ContentType,
                 SizeBytes = f.SizeBytes,
                 BlobUri = f.BlobUri,
@@ -256,7 +364,7 @@ public class PortableExportService : IPortableExportService
             {
                 try
                 {
-                    var (stream, _, _) = await _storageProvider.DownloadAsync(f.TenantId, f.Id, ct);
+                    var (stream, _, _) = await _storageProvider.DownloadAsync(f.TenantId, await SelfHostedFileObjects.ResolveStorageIdAsync(_db, f.TenantId, f.Id, ct), ct);
                     using (stream)
                     using (var memoryStream = new MemoryStream())
                     {
@@ -299,6 +407,7 @@ public class PortableExportService : IPortableExportService
 
         var package = new PortableExportPackage
         {
+            Scope = new ExportScope { Type = scope.Type, VaultIds = scope.VaultIds?.Distinct().ToList(), KnowledgeItemIds = scope.KnowledgeItemIds?.Distinct().ToList() },
             SchemaVersion = CoreSchema.Version,
             SourceEdition = "selfhosted",
             SourceTenantId = _tenantProvider.TenantId,
@@ -342,9 +451,12 @@ public class PortableExportService : IPortableExportService
         return package;
     }
 
-    public async Task<Stream> ExportZipAsync(CancellationToken ct = default)
+    public Task<Stream> ExportZipAsync(CancellationToken ct = default)
+        => ExportZipAsync(new ExportScope { Type = ExportScopeType.Tenant }, ct);
+
+    public async Task<Stream> ExportZipAsync(ExportScope scope, CancellationToken ct = default)
     {
-        var package = await ExportAsync(ct);
+        var package = await ExportAsync(scope, ct);
         package.Mode = ExportMode.Full;
 
         var skippedItems = new List<PortableSkippedItem>();
@@ -359,7 +471,7 @@ public class PortableExportService : IPortableExportService
 
                 try
                 {
-                    var (downloadStream, _, _) = await _storageProvider.DownloadAsync(tenantId, file.Id, ct);
+                    var (downloadStream, _, _) = await _storageProvider.DownloadAsync(tenantId, await SelfHostedFileObjects.ResolveStorageIdAsync(_db, tenantId, file.Id, ct), ct);
                     using (downloadStream)
                     {
                         var ext = Path.GetExtension(file.FileName);
@@ -395,6 +507,23 @@ public class PortableExportService : IPortableExportService
 
         memoryStream.Position = 0;
         return memoryStream;
+    }
+
+    private static void ValidateScope(ExportScope scope)
+    {
+        var vaults = scope.VaultIds ?? [];
+        var items = scope.KnowledgeItemIds ?? [];
+        if (vaults.Contains(Guid.Empty) || items.Contains(Guid.Empty))
+            throw new ArgumentException("Scope IDs must be non-empty UUIDs.");
+        var valid = scope.Type switch
+        {
+            ExportScopeType.Tenant => vaults.Count == 0 && items.Count == 0,
+            ExportScopeType.Vault or ExportScopeType.VaultWithChildren => vaults.Count > 0 && items.Count == 0,
+            ExportScopeType.MultiSelect => items.Count > 0 && vaults.Count == 0,
+            ExportScopeType.SingleItem => items.Count == 1 && vaults.Count == 0,
+            _ => false
+        };
+        if (!valid) throw new ArgumentException("Scope requires matching vaultIds or knowledgeItemIds; SingleItem requires exactly one item and Tenant accepts no selectors.");
     }
 
     private static void MergePlatformData(string? platformData, Action<Dictionary<string, JsonElement>?> setter)

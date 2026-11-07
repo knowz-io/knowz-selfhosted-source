@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using Knowz.Core.Entities;
 using Knowz.Core.Enums;
 using Knowz.SelfHosted.API.Helpers;
+using Knowz.SelfHosted.Application.Services;
 using Knowz.SelfHosted.Infrastructure.Data;
 using Knowz.SelfHosted.Infrastructure.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -69,7 +70,7 @@ public static class AttachmentAIAdminEndpoints
 
                 try
                 {
-                    var download = await storageProvider.DownloadAsync(file.TenantId, file.Id, ct);
+                    var download = await storageProvider.DownloadAsync(file.TenantId, await SelfHostedFileObjects.ResolveStorageIdAsync(db, file.TenantId, file.Id, ct), ct);
                     using var stream = download.stream;
 
                     var extraction = await contentExtractor.ExtractAsync(file, stream, ct);

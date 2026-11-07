@@ -20,19 +20,22 @@ public static class AttachmentContextBuilder
         int maxChars,
         CancellationToken ct)
     {
+        if (!await PortableProcessingPolicy.CanProcessAsync(db, knowledgeId, db.CurrentTenantId, ct)) return string.Empty;
         var parts = new List<string>();
         var totalChars = 0;
 
         var knowledgeAttachments = await db.FileAttachments
             .IgnoreQueryFilters()
-            .Where(fa => fa.KnowledgeId == knowledgeId)
+            .Where(fa => fa.TenantId == db.CurrentTenantId && fa.KnowledgeId == knowledgeId)
             .Join(
-                db.FileRecords.IgnoreQueryFilters().Where(fr => !fr.IsDeleted),
+                db.FileRecords.IgnoreQueryFilters().Where(fr => fr.TenantId == db.CurrentTenantId && !fr.IsDeleted
+                    && !db.ShSealedFiles.IgnoreQueryFilters().Any(s => s.TenantId == fr.TenantId && s.Id == fr.Id)),
                 fa => fa.FileRecordId,
                 fr => fr.Id,
                 (fa, fr) => new
                 {
                     fr.FileName,
+                    fr.EncryptedFieldsJson,
                     fr.ExtractedText,
                     fr.TranscriptionText,
                     fr.ContentType,
@@ -53,7 +56,7 @@ public static class AttachmentContextBuilder
                 break;
 
             AddSection(parts, ref totalChars, maxChars, BuildAttachmentSection(
-                attachment.FileName,
+                PortableProcessingPolicy.PublicFileName(attachment.FileName, attachment.EncryptedFieldsJson),
                 attachment.ContentType,
                 attachment.ExtractedText,
                 attachment.VisionDescription,
@@ -66,12 +69,14 @@ public static class AttachmentContextBuilder
                 mode: mode));
 
             AddSection(parts, ref totalChars, maxChars,
-                BuildTranscriptSection(attachment.FileName, attachment.TranscriptionText));
+                BuildTranscriptSection(PortableProcessingPolicy.PublicFileName(attachment.FileName, attachment.EncryptedFieldsJson), attachment.TranscriptionText));
         }
 
         var comments = await db.Comments
             .IgnoreQueryFilters()
-            .Where(c => c.KnowledgeId == knowledgeId && !c.IsDeleted)
+            .Where(c => c.TenantId == db.CurrentTenantId && c.KnowledgeId == knowledgeId && !c.IsDeleted
+                && !db.ShSealedComments.IgnoreQueryFilters().Any(s => s.TenantId == c.TenantId && s.KnowledgeId == c.KnowledgeId
+                    && (s.Id == c.Id || s.LineageScope == "" && s.OriginalCommentId == c.Id)))
             .OrderBy(c => c.CreatedAt)
             .Select(c => new { c.Id, c.AuthorName, c.Body })
             .ToListAsync(ct);
@@ -89,14 +94,16 @@ public static class AttachmentContextBuilder
 
             var commentAttachments = await db.FileAttachments
                 .IgnoreQueryFilters()
-                .Where(fa => fa.CommentId == comment.Id)
+                .Where(fa => fa.TenantId == db.CurrentTenantId && fa.CommentId == comment.Id)
                 .Join(
-                    db.FileRecords.IgnoreQueryFilters().Where(fr => !fr.IsDeleted),
+                    db.FileRecords.IgnoreQueryFilters().Where(fr => fr.TenantId == db.CurrentTenantId && !fr.IsDeleted
+                        && !db.ShSealedFiles.IgnoreQueryFilters().Any(s => s.TenantId == fr.TenantId && s.Id == fr.Id)),
                     fa => fa.FileRecordId,
                     fr => fr.Id,
                     (fa, fr) => new
                     {
                         fr.FileName,
+                        fr.EncryptedFieldsJson,
                         fr.ExtractedText,
                         fr.TranscriptionText,
                         fr.ContentType,
@@ -115,7 +122,7 @@ public static class AttachmentContextBuilder
                     break;
 
                 AddSection(parts, ref totalChars, maxChars, BuildAttachmentSection(
-                    attachment.FileName,
+                    PortableProcessingPolicy.PublicFileName(attachment.FileName, attachment.EncryptedFieldsJson),
                     attachment.ContentType,
                     attachment.ExtractedText,
                     attachment.VisionDescription,
@@ -128,7 +135,7 @@ public static class AttachmentContextBuilder
                     mode: mode));
 
                 AddSection(parts, ref totalChars, maxChars,
-                    BuildTranscriptSection(attachment.FileName, attachment.TranscriptionText));
+                    BuildTranscriptSection(PortableProcessingPolicy.PublicFileName(attachment.FileName, attachment.EncryptedFieldsJson), attachment.TranscriptionText));
             }
         }
 

@@ -52,6 +52,18 @@ Any service exposing `/v1/chat/completions` and `/v1/embeddings` — Ollama, LM 
 
 > Changing the embedding model after content has been embedded requires re-embedding: a dimension mismatch between stored vectors and new queries breaks vector search. See [UPGRADE_NOTES.md](UPGRADE_NOTES.md).
 
+### Optional unlocked-document local AI
+
+The encrypted document workspace has an explicit local AI draft workflow. It is off by default. Configure `PORTABLE_LOCAL_AI_ENABLED=true`, the existing `OPENAI_COMPAT_ENDPOINT` and `OPENAI_COMPAT_CHAT_MODEL`, and `PORTABLE_LOCAL_AI_ADDRESS` with the endpoint's exact local IP. These map to `PortableLocalAi__Enabled` and `PortableLocalAi__AllowedAddresses__0`. The global `KNOWZ_AI_DISABLED=true` setting always disables this workflow.
+
+The endpoint must resolve only to explicitly listed loopback, RFC1918 or IPv6 unique-local addresses. Public, link-local and cloud metadata addresses, proxies and redirects are refused. The local model is an operator-supplied dependency; it is not bundled or downloaded automatically. The workflow uses its dedicated local transport without falling back to Knowz Cloud or another provider.
+
+For Docker Compose, `127.0.0.1` is the API container itself. For a model on the Docker host, use a reachable host gateway address in the endpoint and pin that exact IP. If using a hostname, list every address it resolves to (including IPv6) through `PortableLocalAi__AllowedAddresses__1`, `__2`, etc. in a Compose override; at most32 addresses are allowed. Recreate only your owned API container after changing its configuration. A container restart invalidates outstanding consent requests.
+
+After unlocking the original keys and explicitly selecting the active write generation, choose **Review local AI option**. Review the displayed origin/model and grant consent for the current document and instruction. The request supports a64 KiB UTF-8 document, a4 KiB instruction, a64 KiB result and a120-second deadline. Consent expires after5 minutes, can be consumed once, and belongs to the process that issued it; multi-instance routing requires the same process or a fresh review.
+
+Generated drafts are transient and do not save or queue work. Review the draft, apply it to the editor and save explicitly. Encrypted bodies and protected content fields are resealed locally under the selected original active generation; an ordinary body remains ordinary. Historical envelopes and retired keys remain available for recovery. Cancel/lock, logout, tenant changes and stale revisions discard the local draft. Ordinary automatic AI configuration remains separate and may process eligible ordinary records; this opt-in does not make protected content searchable.
+
 ### Tier 2: Azure OpenAI (Optional)
 
 Enable AI-powered chat, summarization, and embedding generation with your own Azure OpenAI resource.
@@ -95,6 +107,27 @@ dotnet user-secrets set "KnowzPlatform:Enabled" "true" --project src/Knowz.SelfH
 dotnet user-secrets set "KnowzPlatform:BaseUrl" "https://api.knowz.io" --project src/Knowz.SelfHosted.AppHost
 dotnet user-secrets set "KnowzPlatform:ApiKey" "ukz_your_key" --project src/Knowz.SelfHosted.AppHost
 ```
+
+## Destinations (live peer sync)
+
+Destinations connect this instance to a running Knowz Cloud tenant or, since ADR_G6 (#1043), to an
+**operator-allowlisted** peer (a portable / platform instance or another self-hosted instance). The
+built-in Knowz Cloud hosts are always allowed; every other host must be listed explicitly. This is an
+allowlist. HTTPS and public-address checks apply by default. An operator can explicitly set
+`Sync__AllowPrivatePeerAddresses=true` for listed local/LAN peers; this permits their loopback,
+RFC1918 or IPv6 unique-local addresses and HTTP. Built-in Knowz Cloud hosts still require HTTPS,
+and link-local/cloud metadata addresses remain refused. Keep the default `false` for deployments
+that do not need private peers. In Docker, loopback refers to that container, so use a reachable
+peer hostname/address and list it explicitly. See `knowzcode/specs/ADR_G6_Allowlisted_Peer_Destinations.md`.
+
+| Variable | Config Key | Description | Example |
+|----------|-----------|-------------|---------|
+| -- | `Sync__AllowedPlatformHosts__0` (`__1`, `__2`, …) | Additional peer host names this instance may connect to. Host only, case-insensitive; a URL is reduced to its host. | `peer.example.com` |
+| -- | `Sync__AllowPrivatePeerAddresses` | Explicit local/LAN opt-in, default `false`; still requires the host allowlist and metadata-address checks. | `true` for an owned local peer |
+
+Personal keys only: use a `ukz_` key toward Knowz Cloud / portable, and the remote instance's `ksh_`
+per-user key toward another self-hosted instance. Tenant keys are rejected. Peers reach this instance
+through `GET /api/v1/sync/schema` and `/api/v1/sync/vaults/{id}/…` with one of THIS instance's `ksh_` keys.
 
 ## Storage
 

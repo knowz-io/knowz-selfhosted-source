@@ -16,23 +16,26 @@ using Knowz.SelfHosted.Infrastructure.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-public class PortableImportService : IPortableImportService
+public partial class PortableImportService : IPortableImportService
 {
     private readonly SelfHostedDbContext _db;
     private readonly ITenantProvider _tenantProvider;
     private readonly IFileStorageProvider _storageProvider;
     private readonly ILogger<PortableImportService> _logger;
+    private readonly IPortableActorProvider? _actorProvider;
 
     public PortableImportService(
         SelfHostedDbContext db,
         ITenantProvider tenantProvider,
         IFileStorageProvider storageProvider,
-        ILogger<PortableImportService> logger)
+        ILogger<PortableImportService> logger,
+        IPortableActorProvider? actorProvider = null)
     {
         _db = db;
         _tenantProvider = tenantProvider;
         _storageProvider = storageProvider;
         _logger = logger;
+        _actorProvider = actorProvider;
     }
 
     public async Task<ImportValidationResult> ValidateAsync(
@@ -154,14 +157,28 @@ public class PortableImportService : IPortableImportService
         ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default)
         => ImportCoreAsync(package, strategy, ct, null);
 
+    public Task<PortableImportResult> ImportAsync(PortableExportPackage package, Guid targetVaultId,
+        ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default)
+        => ImportCoreAsync(package, strategy, ct, null, targetVaultId);
+
+    public Task<PortableImportResult> ImportZipAsync(ZipArchive archive, Guid targetVaultId,
+        ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default)
+        => ImportCoreAsync(PortableZipReader.ReadFromZip(archive), strategy, ct,
+            file => string.IsNullOrEmpty(file.BinaryFilePath) ? null : archive.GetEntry(file.BinaryFilePath)?.Open(), targetVaultId);
+
     public Task<PortableImportResult> ImportZipAsync(ZipArchive archive,
         ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default)
         => ImportCoreAsync(PortableZipReader.ReadFromZip(archive), strategy, ct,
             file => string.IsNullOrEmpty(file.BinaryFilePath) ? null : archive.GetEntry(file.BinaryFilePath)?.Open());
 
-    private async Task<PortableImportResult> ImportCoreAsync(
+    internal Task<PortableImportResult> ImportMappedMetadataAsync(PortableExportPackage package,
+        ImportConflictStrategy strategy, IReadOnlyCollection<Guid> existingVaults, CancellationToken ct, Guid? targetVaultId = null)
+        => ImportAttemptAsync(package, strategy, ct, null, targetVaultId, existingVaults);
+
+    private async Task<PortableImportResult> ImportAttemptAsync(
         PortableExportPackage package, ImportConflictStrategy strategy, CancellationToken ct,
-        Func<PortableFileRecord, Stream?>? openBinary)
+        Func<PortableFileRecord, Stream?>? openBinary, Guid? targetVaultId = null, IReadOnlyCollection<Guid>? existingVaults = null,
+        LegacyImportState? direct = null)
     {
         var sw = Stopwatch.StartNew();
         var result = new PortableImportResult { StrategyUsed = strategy };
@@ -181,13 +198,82 @@ public class PortableImportService : IPortableImportService
             return result;
         }
 
+        if (targetVaultId.HasValue && !await _db.Vaults.AnyAsync(v => v.Id == targetVaultId.Value, ct))
+        {
+            result.Error = "Target vault is unavailable in this tenant.";
+            result.Duration = sw.Elapsed;
+            return result;
+        }
+
         var preserveIds = IsSameEdition(package.SourceEdition);
         var tenantId = _tenantProvider.TenantId;
         Guid ResolveId(string kind, Guid sourceId) => preserveIds ? sourceId :
             StableImportId(tenantId, package, kind, sourceId);
 
+        // An ordinary import does not authorize removal of an existing protected field graph.
+        // Check only destination identities this request would touch, before any metadata or bytes.
+        var incomingKnowledge = package.Data.KnowledgeItems.ToDictionary(k => ResolveId("Knowledge", k.Id));
+        var incomingKnowledgeIds = incomingKnowledge.Keys.ToArray();
+        var existingKnowledge = await _db.KnowledgeItems.IgnoreQueryFilters().AsNoTracking()
+            .Where(k => incomingKnowledgeIds.Contains(k.Id))
+            .Select(k => new { k.Id, k.TenantId, k.IsDeleted, k.EncryptedFieldsJson,
+                VaultIds = k.KnowledgeVaults.Select(v => v.VaultId).ToList() }).ToListAsync(ct);
+        foreach (var existing in existingKnowledge)
+        {
+            if (existing.TenantId != tenantId || existing.IsDeleted ||
+                (!string.IsNullOrWhiteSpace(existing.EncryptedFieldsJson) && targetVaultId.HasValue &&
+                 !existing.VaultIds.Contains(targetVaultId.Value)))
+                return new PortableImportResult { StrategyUsed = strategy, Error = "An imported knowledge identity is unavailable in the selected destination." };
+            if (direct != null && strategy != ImportConflictStrategy.Skip && !string.IsNullOrWhiteSpace(existing.EncryptedFieldsJson))
+            {
+                var candidate = incomingKnowledge[existing.Id];
+                var companionCheck = JsonSerializer.Deserialize<PortableKnowledge>(JsonSerializer.Serialize(candidate))!;
+                companionCheck.EncryptedFieldsJson = existing.EncryptedFieldsJson;
+                var extensionCompanion = ProtectedKnowledgeFields.HasPlaintextExtensionCompanion(companionCheck);
+                ProtectedKnowledgeFields.RedactCompanions(companionCheck);
+                if ((!string.IsNullOrEmpty(candidate.Title) && candidate.Title != companionCheck.Title) ||
+                    (!string.IsNullOrEmpty(candidate.Content) && candidate.Content != companionCheck.Content) ||
+                    (!string.IsNullOrEmpty(candidate.Summary) && candidate.Summary != companionCheck.Summary) ||
+                    (!string.IsNullOrEmpty(candidate.BriefSummary) && candidate.BriefSummary != companionCheck.BriefSummary) || extensionCompanion)
+                    return new PortableImportResult { StrategyUsed = strategy,
+                        Error = "The import supplies plaintext companions for protected knowledge fields. Use a complete encrypted archive." };
+            }
+            if (string.IsNullOrWhiteSpace(existing.EncryptedFieldsJson) ||
+                !string.IsNullOrWhiteSpace(incomingKnowledge[existing.Id].EncryptedFieldsJson)) continue;
+            if (strategy != ImportConflictStrategy.Skip)
+                return new PortableImportResult { StrategyUsed = strategy,
+                    Error = "The import omits existing protected knowledge fields. Use a complete encrypted archive to preserve their fields and key references." };
+            result.Warnings.Add("Protected fields and key references were retained for a skipped knowledge item.");
+        }
+
+        if (direct != null)
+        {
+            var incomingFiles = package.Data.FileRecords.ToDictionary(f => ResolveId("FileRecord", f.Id));
+            var fileIds = incomingFiles.Keys.ToArray();
+            var protectedFiles = await _db.FileRecords.AsNoTracking().Where(f => fileIds.Contains(f.Id) &&
+                f.EncryptedFieldsJson != null && f.EncryptedFieldsJson != "").Select(f => new { f.Id, f.EncryptedFieldsJson }).ToListAsync(ct);
+            if (strategy != ImportConflictStrategy.Skip)
+                foreach (var file in protectedFiles)
+                {
+                    using var fields = JsonDocument.Parse(file.EncryptedFieldsJson!);
+                    if (fields.RootElement.GetProperty("fields").TryGetProperty("fileName", out _) &&
+                        !string.IsNullOrEmpty(incomingFiles[file.Id].FileName) && incomingFiles[file.Id].FileName != "encrypted-file")
+                        return new PortableImportResult { StrategyUsed = strategy,
+                            Error = "The import supplies a plaintext companion for a protected file name. Use a complete encrypted archive." };
+                }
+            if (strategy != ImportConflictStrategy.Skip && protectedFiles.Any(file => string.IsNullOrWhiteSpace(incomingFiles[file.Id].EncryptedFieldsJson)))
+                return new PortableImportResult { StrategyUsed = strategy,
+                    Error = "The import omits existing protected file fields. Use a complete encrypted archive to preserve their fields and key references." };
+        }
+
         // ID remap dictionaries (only used for cross-edition)
         var vaultIdMap = new Dictionary<Guid, Guid>();
+        foreach (var id in existingVaults ?? [])
+        {
+            if (!await _db.Vaults.AnyAsync(v => v.Id == id && v.TenantId == tenantId, ct))
+                return new PortableImportResult { Error = "Mapped vault is unavailable in this tenant." };
+            vaultIdMap[id] = id;
+        }
         var topicIdMap = new Dictionary<Guid, Guid>();
         var tagIdMap = new Dictionary<Guid, Guid>();
         var personIdMap = new Dictionary<Guid, Guid>();
@@ -199,10 +285,14 @@ public class PortableImportService : IPortableImportService
         var createdKnowledgeIds = new HashSet<Guid>();
         var createdCommentIds = new HashSet<Guid>();
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        var ownsTransaction = _db.Database.CurrentTransaction == null;
+        if (direct != null) await PrepareLegacyImportAsync(direct, package, strategy, ResolveId, openBinary, targetVaultId, ct);
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction = null;
 
         try
         {
+            if (ownsTransaction) transaction = await _db.Database.BeginTransactionAsync(ct);
+            if (direct != null) await ValidateLegacyActivationAsync(direct, ct);
             _logger.LogInformation(
                 "Starting import: {Edition} source, {Strategy} strategy, preserveIds={PreserveIds}",
                 package.SourceEdition, strategy, preserveIds);
@@ -210,8 +300,11 @@ public class PortableImportService : IPortableImportService
             var originalVaultIds = (await _db.Vaults.Select(v => v.Id).ToListAsync(ct)).ToHashSet();
 
             // 1. Vaults
-            result.Vaults = await ImportVaultsAsync(
-                package.Data.Vaults, vaultIdMap, preserveIds, ResolveId, strategy, tenantId, ct);
+            if (!targetVaultId.HasValue)
+                result.Vaults = await ImportVaultsAsync(
+                    package.Data.Vaults, vaultIdMap, preserveIds, ResolveId, strategy, tenantId, ct);
+            else
+                vaultIdMap[targetVaultId.Value] = targetVaultId.Value;
 
             // 2. Topics
             result.Topics = await ImportTopicsAsync(
@@ -237,7 +330,7 @@ public class PortableImportService : IPortableImportService
             var (knowledgeCounts, junctionCount) = await ImportKnowledgeAsync(
                 package.Data.KnowledgeItems, knowledgeIdMap,
                 vaultIdMap, topicIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap,
-                preserveIds, ResolveId, strategy, tenantId, ct, createdKnowledgeIds);
+                preserveIds, ResolveId, strategy, tenantId, ct, createdKnowledgeIds, targetVaultId);
             result.KnowledgeItems = knowledgeCounts;
             result.JunctionsRestored = junctionCount;
 
@@ -246,9 +339,10 @@ public class PortableImportService : IPortableImportService
                 package.Data.InboxItems, preserveIds, ResolveId, strategy, tenantId, ct);
 
             // 9. VaultPerson junctions (from PortableVault.PersonIds)
-            await ImportVaultPersonsAsync(
-                package.Data.Vaults, vaultIdMap, personIdMap, preserveIds, tenantId, ct,
-                strategy == ImportConflictStrategy.Skip ? originalVaultIds : null);
+            if (!targetVaultId.HasValue)
+                await ImportVaultPersonsAsync(
+                    package.Data.Vaults, vaultIdMap, personIdMap, preserveIds, tenantId, ct,
+                    strategy == ImportConflictStrategy.Skip ? originalVaultIds : null);
 
             // 10. Comments (v2+)
             if (package.Data.Comments.Count > 0)
@@ -263,7 +357,7 @@ public class PortableImportService : IPortableImportService
             {
                 result.FileRecords = await ImportFileRecordsAsync(
                     package.Data.FileRecords, fileRecordIdMap, knowledgeIdMap, commentIdMap,
-                    preserveIds, ResolveId, strategy, tenantId, ct, openBinary, result, createdKnowledgeIds, createdCommentIds);
+                    preserveIds, ResolveId, strategy, tenantId, ct, openBinary, result, createdKnowledgeIds, createdCommentIds, direct);
             }
 
             // 12. Archives (v2+)
@@ -274,21 +368,39 @@ public class PortableImportService : IPortableImportService
             }
 
             // 13. Recompute VaultAncestors
-            await RecomputeVaultAncestorsAsync(tenantId, ct);
-
-            await _db.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
+            if (!targetVaultId.HasValue) await RecomputeVaultAncestorsAsync(tenantId, ct);
 
             result.Success = true;
+            result.Duration = sw.Elapsed;
+            if (direct != null) await MarkLegacyCommittedAsync(direct, result, ct);
+            await _db.SaveChangesAsync(ct);
+            if (direct != null) await RequireLegacyAuthorityAsync(direct, ct);
+            if (transaction != null) await transaction.CommitAsync(ct);
+
+            if (direct != null) await RequireLegacyAuthorityAsync(direct, ct);
             _logger.LogInformation("Import completed successfully");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Import failed, rolling back transaction");
-            await transaction.RollbackAsync(ct);
+            if (transaction != null)
+            {
+                try { await transaction.RollbackAsync(CancellationToken.None); }
+                catch (Exception rollbackError) { _logger.LogWarning(rollbackError, "Legacy import rollback could not confirm the transaction outcome"); }
+                await transaction.DisposeAsync(); transaction = null;
+            }
+            // A caller-owned archive transaction must retain the original provider exception
+            // so its execution strategy can retry the complete atomic operation.
+            if (transaction == null && _db.Database.CurrentTransaction != null) throw;
+            if (direct != null)
+            {
+                if (ex is OperationCanceledException) throw;
+                return await RecoverLegacyImportAsync(direct, ex, CancellationToken.None);
+            }
             result.Success = false;
             result.Error = ex.Message;
         }
+        finally { if (transaction != null) await transaction.DisposeAsync(); }
 
         result.Duration = sw.Elapsed;
         return result;
@@ -768,7 +880,7 @@ public class PortableImportService : IPortableImportService
         bool preserveIds, Func<string, Guid, Guid> resolveId,
         ImportConflictStrategy strategy,
         Guid tenantId,
-        CancellationToken ct, HashSet<Guid> createdIds)
+        CancellationToken ct, HashSet<Guid> createdIds, Guid? targetVaultId)
     {
         var counts = new EntityImportCounts();
         var junctionCount = 0;
@@ -804,6 +916,8 @@ public class PortableImportService : IPortableImportService
                         existing.Content = pk.Content;
                         existing.Summary = pk.Summary;
                         existing.BriefSummary = pk.BriefSummary;
+                        existing.EncryptedFieldsJson = pk.EncryptedFieldsJson;
+                        existing.OriginalItemId = pk.OriginalItemId;
                         existing.Type = pk.Type;
                         existing.Source = pk.Source;
                         existing.FilePath = pk.FilePath;
@@ -811,24 +925,28 @@ public class PortableImportService : IPortableImportService
                         existing.IndexedAt = null;
                         existing.TopicId = RemapNullableId(pk.TopicId, topicIdMap);
                         existing.UpdatedAt = DateTime.UtcNow;
-                        existing.PlatformData = SerializeExtensionData(pk.ExtensionData);
+                        existing.PlatformData = SerializeExtensionData(PortableKnowledgeLinks.PublicExtensions(pk.ExtensionData));
 
                         // Rebuild junctions
                         junctionCount += RebuildKnowledgeJunctions(
-                            existing, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId);
+                            existing, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId, targetVaultId);
+                        PortableKnowledgeLinks.Store(existing, pk, locationIdMap, eventIdMap, false);
                         counts.Overwritten++;
                         break;
                     case ImportConflictStrategy.Merge:
                         existing.Summary ??= pk.Summary;
                         existing.BriefSummary ??= pk.BriefSummary;
+                        existing.EncryptedFieldsJson ??= pk.EncryptedFieldsJson;
+                        existing.OriginalItemId ??= pk.OriginalItemId;
                         if (string.IsNullOrEmpty(existing.Content))
                             existing.Content = pk.Content;
                         existing.TopicId ??= RemapNullableId(pk.TopicId, topicIdMap);
                         junctionCount += MergeKnowledgeJunctions(
-                            existing, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId);
+                            existing, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId, targetVaultId);
                         existing.IsIndexed = false;
                         existing.UpdatedAt = DateTime.UtcNow;
-                        MergePlatformData(existing, pk.ExtensionData);
+                        MergePlatformData(existing, PortableKnowledgeLinks.PublicExtensions(pk.ExtensionData));
+                        PortableKnowledgeLinks.Store(existing, pk, locationIdMap, eventIdMap, true);
                         counts.Merged++;
                         break;
                 }
@@ -846,6 +964,8 @@ public class PortableImportService : IPortableImportService
                     Content = pk.Content,
                     Summary = pk.Summary,
                     BriefSummary = pk.BriefSummary,
+                    EncryptedFieldsJson = pk.EncryptedFieldsJson,
+                    OriginalItemId = pk.OriginalItemId,
                     Type = pk.Type,
                     Source = pk.Source,
                     FilePath = pk.FilePath,
@@ -854,14 +974,15 @@ public class PortableImportService : IPortableImportService
                     TopicId = RemapNullableId(pk.TopicId, topicIdMap),
                     CreatedAt = pk.CreatedAt,
                     UpdatedAt = pk.UpdatedAt,
-                    PlatformData = SerializeExtensionData(pk.ExtensionData)
+                    PlatformData = SerializeExtensionData(PortableKnowledgeLinks.PublicExtensions(pk.ExtensionData))
                 };
                 _db.KnowledgeItems.Add(knowledge);
                 existingById[newId] = knowledge;
 
                 // Create junctions
                 junctionCount += CreateKnowledgeJunctions(
-                    knowledge, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId);
+                    knowledge, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId, targetVaultId);
+                PortableKnowledgeLinks.Store(knowledge, pk, locationIdMap, eventIdMap, false);
 
                 createdIds.Add(newId);
                 counts.Created++;
@@ -881,12 +1002,12 @@ public class PortableImportService : IPortableImportService
         Dictionary<Guid, Guid> locationIdMap,
         Dictionary<Guid, Guid> eventIdMap,
         Dictionary<Guid, Tag> allTags,
-        Guid tenantId)
+        Guid tenantId, Guid? targetVaultId = null)
     {
         var count = 0;
 
         // KnowledgeVault junctions
-        foreach (var vaultId in pk.VaultIds)
+        foreach (var vaultId in targetVaultId.HasValue ? new List<Guid> { targetVaultId.Value } : pk.VaultIds)
         {
             if (vaultIdMap.TryGetValue(vaultId, out var mappedVaultId))
             {
@@ -895,7 +1016,7 @@ public class PortableImportService : IPortableImportService
                     KnowledgeId = knowledge.Id,
                     VaultId = mappedVaultId,
                     TenantId = tenantId,
-                    IsPrimary = pk.PrimaryVaultId.HasValue && pk.PrimaryVaultId.Value == vaultId,
+                    IsPrimary = targetVaultId.HasValue || pk.PrimaryVaultId.HasValue && pk.PrimaryVaultId.Value == vaultId,
                     CreatedAt = DateTime.UtcNow
                 });
                 count++;
@@ -949,7 +1070,7 @@ public class PortableImportService : IPortableImportService
         }
 
         // KnowledgeLocation junctions
-        foreach (var locationId in pk.LocationIds)
+        foreach (var locationId in pk.LocationIds.Concat(pk.LocationLinks?.Select(l => l.EntityId) ?? []).Distinct())
         {
             if (locationIdMap.TryGetValue(locationId, out var mappedLocationId))
             {
@@ -963,7 +1084,7 @@ public class PortableImportService : IPortableImportService
         }
 
         // KnowledgeEvent junctions
-        foreach (var eventId in pk.EventIds)
+        foreach (var eventId in pk.EventIds.Concat(pk.EventLinks?.Select(l => l.EntityId) ?? []).Distinct())
         {
             if (eventIdMap.TryGetValue(eventId, out var mappedEventId))
             {
@@ -983,7 +1104,7 @@ public class PortableImportService : IPortableImportService
         Knowledge existing, PortableKnowledge source,
         Dictionary<Guid, Guid> vaultIdMap, Dictionary<Guid, Guid> tagIdMap,
         Dictionary<Guid, Guid> personIdMap, Dictionary<Guid, Guid> locationIdMap,
-        Dictionary<Guid, Guid> eventIdMap, Dictionary<Guid, Tag> allTags, Guid tenantId)
+        Dictionary<Guid, Guid> eventIdMap, Dictionary<Guid, Tag> allTags, Guid tenantId, Guid? targetVaultId = null)
     {
         // Deduplicate by destination identity: distinct source IDs can resolve to the same
         // named entity across editions. Existing junctions and their metadata stay intact.
@@ -1000,8 +1121,8 @@ public class PortableImportService : IPortableImportService
             existing.KnowledgePersons.Select(p => p.PersonId)).ToHashSet();
         var additions = new PortableKnowledge
         {
-            VaultIds = MissingIds(source.VaultIds, vaultIdMap, existing.KnowledgeVaults.Select(v => v.VaultId)),
-            PrimaryVaultId = existing.KnowledgeVaults.Any(v => v.IsPrimary) ? null : source.PrimaryVaultId,
+            VaultIds = MissingIds(targetVaultId.HasValue ? [targetVaultId.Value] : source.VaultIds, vaultIdMap, existing.KnowledgeVaults.Select(v => v.VaultId)),
+            PrimaryVaultId = existing.KnowledgeVaults.Any(v => v.IsPrimary) ? null : targetVaultId ?? source.PrimaryVaultId,
             TagIds = MissingIds(source.TagIds, tagIdMap, existing.Tags.Select(t => t.Id)),
             PersonLinks = personLinks.Where(link => missingPersonIds.Contains(link.EntityId)).DistinctBy(link => link.EntityId).ToList(),
             LocationIds = MissingIds(source.LocationIds.Concat(source.LocationLinks?.Select(link => link.EntityId) ?? []),
@@ -1022,7 +1143,7 @@ public class PortableImportService : IPortableImportService
         Dictionary<Guid, Guid> locationIdMap,
         Dictionary<Guid, Guid> eventIdMap,
         Dictionary<Guid, Tag> allTags,
-        Guid tenantId)
+        Guid tenantId, Guid? targetVaultId = null)
     {
         // Remove existing junctions
         _db.KnowledgeVaults.RemoveRange(existing.KnowledgeVaults);
@@ -1032,7 +1153,7 @@ public class PortableImportService : IPortableImportService
         existing.Tags.Clear();
 
         // Recreate from package
-        return CreateKnowledgeJunctions(existing, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId);
+        return CreateKnowledgeJunctions(existing, pk, vaultIdMap, tagIdMap, personIdMap, locationIdMap, eventIdMap, allTags, tenantId, targetVaultId);
     }
 
     private async Task<EntityImportCounts> ImportCommentsAsync(
@@ -1136,7 +1257,7 @@ public class PortableImportService : IPortableImportService
         Dictionary<Guid, Guid> knowledgeIdMap, Dictionary<Guid, Guid> commentIdMap,
         bool preserveIds, Func<string, Guid, Guid> resolveId, ImportConflictStrategy strategy, Guid tenantId, CancellationToken ct,
         Func<PortableFileRecord, Stream?>? openBinary, PortableImportResult result,
-        HashSet<Guid> createdKnowledgeIds, HashSet<Guid> createdCommentIds)
+        HashSet<Guid> createdKnowledgeIds, HashSet<Guid> createdCommentIds, LegacyImportState? direct)
     {
         var counts = new EntityImportCounts();
         var existingById = await _db.FileRecords.Include(f => f.Attachments).ToDictionaryAsync(f => f.Id, ct);
@@ -1172,6 +1293,10 @@ public class PortableImportService : IPortableImportService
             if (!existing || strategy == ImportConflictStrategy.Overwrite)
             {
                 file.FileName = pf.FileName; file.ContentType = pf.ContentType; file.SizeBytes = pf.SizeBytes;
+                file.EncryptedFieldsJson = pf.EncryptedFieldsJson; file.OriginalFileId = pf.OriginalFileId;
+                file.FileVersion = pf.FileVersion; file.IsCurrentVersion = pf.IsCurrentVersion;
+                file.RootFileRecordId = pf.RootFileRecordId.HasValue ? resolveId("FileRecord", pf.RootFileRecordId.Value) : null;
+                file.PreviousFileRecordId = pf.PreviousFileRecordId.HasValue ? resolveId("FileRecord", pf.PreviousFileRecordId.Value) : null;
                 file.TranscriptionText = pf.TranscriptionText; file.ExtractedText = pf.ExtractedText; file.VisionDescription = pf.VisionDescription;
                 var extensionData = pf.ExtensionData?.Where(p => p.Key != AttachmentMetadataKey)
                     .ToDictionary(p => p.Key, p => p.Value) ?? new();
@@ -1185,6 +1310,7 @@ public class PortableImportService : IPortableImportService
             }
             else
             {
+                file.EncryptedFieldsJson ??= pf.EncryptedFieldsJson; file.OriginalFileId ??= pf.OriginalFileId;
                 file.TranscriptionText ??= pf.TranscriptionText; file.ExtractedText ??= pf.ExtractedText; file.VisionDescription ??= pf.VisionDescription;
                 MergePlatformData(file, pf.ExtensionData?.Where(p => p.Key != AttachmentMetadataKey)
                     .ToDictionary(p => p.Key, p => p.Value));
@@ -1192,7 +1318,7 @@ public class PortableImportService : IPortableImportService
             if (existing) file.UpdatedAt = DateTime.UtcNow;
 
             if (!existing || strategy == ImportConflictStrategy.Overwrite || file.BlobMigrationPending || string.IsNullOrEmpty(file.BlobUri))
-                await RestoreBinaryAsync(pf, file, openBinary, result, ct);
+                await RestoreBinaryAsync(pf, file, openBinary, result, ct, direct);
 
             RestoreFileAttachmentLinks(file, pf.Attachments, knowledgeIdMap, commentIdMap,
                 replace: existing && strategy == ImportConflictStrategy.Overwrite);
@@ -1244,9 +1370,14 @@ public class PortableImportService : IPortableImportService
     }
 
     private async Task RestoreBinaryAsync(PortableFileRecord source, FileRecord destination,
-        Func<PortableFileRecord, Stream?>? openBinary, PortableImportResult result, CancellationToken ct)
+        Func<PortableFileRecord, Stream?>? openBinary, PortableImportResult result, CancellationToken ct, LegacyImportState? direct)
     {
         if (string.IsNullOrEmpty(source.BinaryFilePath) && string.IsNullOrEmpty(source.BinaryContentBase64)) return;
+        if (direct != null)
+        {
+            await ActivateLegacyBinaryAsync(direct, destination, ct);
+            return;
+        }
         try
         {
             using var stream = !string.IsNullOrEmpty(source.BinaryContentBase64)

@@ -29,7 +29,7 @@ using NSubstitute;
 
 namespace Knowz.SelfHosted.Tests;
 
-public class PortableImportRoundTripTests : IAsyncLifetime
+public partial class PortableImportRoundTripTests : IAsyncLifetime
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "knowz-import-test-" + Guid.NewGuid());
     private readonly Guid _tenant = Guid.NewGuid();
@@ -134,11 +134,12 @@ public class PortableImportRoundTripTests : IAsyncLifetime
     {
         var package = Package(); package.Data.FileRecords[0].BinaryFilePath = "files/missing.bin";
         var response = await PostZip(package, null);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(1, body.GetProperty("filesBlobFailed").GetInt32());
-        Assert.NotEmpty(body.GetProperty("warnings").EnumerateArray());
-        Assert.True((await _db.FileRecords.SingleAsync()).BlobMigrationPending);
+        Assert.False(body.GetProperty("success").GetBoolean());
+        Assert.NotEmpty(body.GetProperty("error").GetString()!);
+        Assert.False(await _db.FileRecords.AnyAsync());
+        Assert.False(await _db.KnowledgeItems.AnyAsync());
     }
 
     [Fact]
@@ -384,7 +385,7 @@ public class PortableImportRoundTripTests : IAsyncLifetime
         {
             if (bytes != null)
             {
-                var file = package.Data.FileRecords[0]; file.BinaryContentBase64 = null; file.BinaryFilePath = $"files/{file.Id}.bin";
+                var file = package.Data.FileRecords[0]; file.SizeBytes = bytes.Length; file.BinaryContentBase64 = null; file.BinaryFilePath = $"files/{file.Id}.bin";
                 using var entry = archive.CreateEntry(file.BinaryFilePath).Open(); entry.Write(bytes);
             }
             PortableZipWriter.WriteToZip(archive, package);
@@ -395,7 +396,7 @@ public class PortableImportRoundTripTests : IAsyncLifetime
 
     private async Task AssertBytes(Guid id, byte[] expected)
     {
-        var (stream, _, _) = await _storage.DownloadAsync(_tenant, id); using (stream)
+        var (stream, _, _) = await _storage.DownloadAsync(_tenant, await SelfHostedFileObjects.ResolveStorageIdAsync(_db, _tenant, id), default); using (stream)
         {
             using var copy = new MemoryStream(); await stream.CopyToAsync(copy);
             Assert.Equal(SHA256.HashData(expected), SHA256.HashData(copy.ToArray()));

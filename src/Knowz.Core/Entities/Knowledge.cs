@@ -12,12 +12,18 @@ public class Knowledge : ISelfHostedEntity
     public string Content { get; set; } = string.Empty;
     public string? Summary { get; set; }
     public string? BriefSummary { get; set; }
+    /// <summary>Exact customer-encrypted current metadata, independent of the ordinary body.</summary>
+    public string? EncryptedFieldsJson { get; set; }
+    public Guid? OriginalItemId { get; set; }
     public string? SummaryRefinementGuidance { get; set; }
     public KnowledgeType Type { get; set; } = KnowledgeType.Note;
     public string? Source { get; set; }
     public string? FilePath { get; set; }
 
     // Search integration
+    /// <summary>Imported inactive recovery state; ordinary editing and AI processing are forbidden.</summary>
+    public string? PortableRecoveryState { get; set; }
+
     public bool IsIndexed { get; set; }
     public DateTime? IndexedAt { get; set; }
 

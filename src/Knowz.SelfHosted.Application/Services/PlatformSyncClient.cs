@@ -29,12 +29,65 @@ public class PlatformSyncClient : IPlatformSyncClient
     private readonly ILogger<PlatformSyncClient> _logger;
     private readonly PlatformSyncCredentialResolver _credentials;
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    /// <summary>
+    /// Deserialize options for untrusted platform sync JSON.
+    /// Must accept camelCase string enums (e.g. knowledgeItems[].type = "note") — SaaS
+    /// serializes with JsonStringEnumConverter(CamelCase); without the matching converter,
+    /// PullOnly fails with KnowledgeType conversion errors (G3 live Destinations smoke).
+    /// Internal for focused regression tests.
+    /// </summary>
+    internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
         // V-SEC-12: Strip unknown fields from untrusted platform responses.
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+        Converters =
+        {
+            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase),
+            // Bare ISO timestamps deserialize as Unspecified; Npgsql timestamptz rejects them.
+            new UtcDateTimeJsonConverter(),
+            new UtcNullableDateTimeJsonConverter(),
+        }
     };
+
+    /// <summary>Force UTC Kind for portable sync DateTime fields (G3 live Npgsql write).</summary>
+    internal sealed class UtcDateTimeJsonConverter : JsonConverter<DateTime>
+    {
+        public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            var value = reader.GetDateTime();
+            return value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                : value.ToUniversalTime();
+        }
+
+        public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
+            => writer.WriteStringValue(
+                (value.Kind == DateTimeKind.Unspecified
+                    ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                    : value.ToUniversalTime()).ToString("O"));
+    }
+
+    internal sealed class UtcNullableDateTimeJsonConverter : JsonConverter<DateTime?>
+    {
+        public override DateTime? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.Null) return null;
+            var value = reader.GetDateTime();
+            return value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                : value.ToUniversalTime();
+        }
+
+        public override void Write(Utf8JsonWriter writer, DateTime? value, JsonSerializerOptions options)
+        {
+            if (value is null) { writer.WriteNullValue(); return; }
+            writer.WriteStringValue(
+                (value.Value.Kind == DateTimeKind.Unspecified
+                    ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
+                    : value.Value.ToUniversalTime()).ToString("O"));
+        }
+    }
 
     public PlatformSyncClient(
         IHttpClientFactory httpClientFactory,

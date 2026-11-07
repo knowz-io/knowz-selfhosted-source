@@ -17,7 +17,7 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -241,6 +241,9 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("EncryptedFieldsJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("ExtractedText")
                         .HasColumnType("text");
 
@@ -248,14 +251,33 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("FileVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<bool>("IsCurrentVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
                     b.Property<string>("LayoutDataJson")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("OriginalFileId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("PlatformData")
                         .HasColumnType("text");
+
+                    b.Property<Guid?>("PreviousFileRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RootFileRecordId")
+                        .HasColumnType("uuid");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
@@ -276,6 +298,7 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime>("UpdatedAt")
+                        .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("VisionAnalyzedAt")
@@ -437,6 +460,9 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
                     b.Property<Guid?>("CreatedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("EncryptedFieldsJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("FilePath")
                         .HasColumnType("text");
 
@@ -449,8 +475,15 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
                     b.Property<bool>("IsIndexed")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("OriginalItemId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("PlatformData")
                         .HasColumnType("text");
+
+                    b.Property<string>("PortableRecoveryState")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("Source")
                         .HasColumnType("text");
@@ -1302,6 +1335,12 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
                     b.Property<Guid?>("RemoteTenantId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("SecurityRevision")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
@@ -1310,7 +1349,9 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId")
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "PlatformApiUrl")
                         .IsUnique();
 
                     b.ToTable("PlatformConnections");
@@ -1439,6 +1480,1052 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
                         .HasFilter("\"TenantId\" IS NOT NULL AND \"UserId\" IS NOT NULL");
 
                     b.ToTable("PromptTemplates");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShArchiveImportJournal", b =>
+                {
+                    b.Property<Guid>("PlanId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorNamespace")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("ArchiveId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CommitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CommitReceiptJson")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ImportOptionsJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ManifestSha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("MappingSha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PeerBindingSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("PreservedPayloadCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StagedObjectIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("PlanId");
+
+                    b.HasIndex("TenantId", "Status", "UpdatedAt");
+
+                    b.ToTable("ShArchiveImportJournals");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShArchivePeerBinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BindingRevision")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("BindingSlotSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CredentialIdentitySha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("DestinationVaultId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LocalSourceBaseUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("ParentBindingSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PendingLocalSourceBaseUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("PendingRemoteChallengeJson")
+                        .HasMaxLength(8192)
+                        .HasColumnType("character varying(8192)");
+
+                    b.Property<Guid?>("PlatformConnectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PrincipalUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RegisteredByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RegistrationChallengeSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("RemoteBindingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RemoteBindingRevision")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SignerFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SignerPublicKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("SourceBaseUrl")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid>("SourceTenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SourceVaultId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SyncLinkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TrustProvenance")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "BindingSlotSha256")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "DestinationVaultId");
+
+                    b.ToTable("ShArchivePeerBindings");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShArchiveSigningIdentity", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedPrivateKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("TenantId");
+
+                    b.ToTable("ShArchiveSigningIdentities");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShCryptoContextImportAnchor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ArchiveId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ContextId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ManifestSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("MappingSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OriginalBindingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PackageSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PlanSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PublicKeyCatalogJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceTrust")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "PlanId", "ContextId")
+                        .IsUnique();
+
+                    b.ToTable("ShCryptoContextImportAnchors");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShCryptoCustodyChallenge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BindingJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ContextId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ExpectedProofSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Generation")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("KeyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("KeyStateSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PlanSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("VaultId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ActorId", "ExpiresAt");
+
+                    b.ToTable("ShCryptoCustodyChallenges");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShCryptoKeyIdentity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Custody")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int>("Generation")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("KeyType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Lifecycle")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("PortableCryptoContextId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceLifecycle")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "PortableCryptoContextId", "Fingerprint", "Generation")
+                        .IsUnique();
+
+                    b.ToTable("ShCryptoKeyIdentities");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShFileObjectReference", b =>
+                {
+                    b.Property<Guid>("FileRecordId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BlobStorageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("FileRecordId");
+
+                    b.ToTable("ShFileObjectReferences");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShInactiveRecoveryRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DependencyJson")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ImportPlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PoliciesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RecoveryState")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ShInactiveRecoveryRecord");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShPayloadKeyReference", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AlgorithmProfile")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ContextId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("EnvelopeVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FieldName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Fingerprint")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Generation")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("KeyType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("LegacyUnattributed")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("OriginalBindingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OriginalBindingKind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("OriginalItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OwnerKind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "OwnerKind", "OwnerId", "Role", "FieldName")
+                        .IsUnique();
+
+                    b.ToTable("ShPayloadKeyReferences");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShPortableCryptoContext", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AlgorithmProfile")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("BindingKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OriginalBindingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProvenanceStatus")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("SourceTenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "OriginalBindingId");
+
+                    b.ToTable("ShPortableCryptoContexts");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShRecoveredKeyCustodyAcceptance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ContextId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Generation")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("KeyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("KeyStateSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceTrust")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ContextId", "KeyId")
+                        .IsUnique();
+
+                    b.ToTable("ShRecoveredKeyCustodyAcceptances");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShSealedAttachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AttachedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CommentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EncryptedFieldsJson")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("ExcludeFromAiProcessing")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ExcludeFromVersionDiff")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("FileRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InboxId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPrimary")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("KnowledgeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OriginalAttachmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "FileRecordId");
+
+                    b.ToTable("ShSealedAttachments");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShSealedComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AlgorithmProfile")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Ciphertext")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ContentNonce")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CryptoBindingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EncryptedDek")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptedDekNonce")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptedFieldsJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptionKeyRef")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("EnvelopeVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EphemeralPublicKey")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("KnowledgeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LineageScope")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OriginalCommentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OriginalKnowledgeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("OriginalParentCommentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ParentCommentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "KnowledgeId");
+
+                    b.HasIndex("TenantId", "OriginalCommentId", "LineageScope");
+
+                    b.ToTable("ShSealedComments");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShSealedFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BinaryContentBase64")
+                        .HasColumnType("text");
+
+                    b.Property<string>("BinarySha256")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("BlobStorageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentNonce")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ContentType")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CryptoBindingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EncryptedDek")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptedDekNonce")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptedFieldsJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptionKeyRef")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("EnvelopeVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EphemeralPublicKey")
+                        .HasColumnType("text");
+
+                    b.Property<int>("FileVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<bool>("IsCurrentVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("KnowledgeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OriginalFileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("OriginalSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("PreviousFileRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RootFileRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("VaultId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "KnowledgeId");
+
+                    b.ToTable("ShSealedFiles");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShSealedFileStage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BlobStorageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("MetadataJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Revision")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("VaultId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ActorId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("ShSealedFileStages");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShSealedKnowledge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AlgorithmProfile")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Ciphertext")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ClientVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ContentNonce")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CryptoBindingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CryptoVersion")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DekNonce")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptedDek")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptedDekNonce")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptedFieldsJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptionKeyRef")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("EnvelopeVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EphemeralPublicKey")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("KnowledgeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LifecycleStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("LineageScope")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OriginalItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerifiedFingerprint")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("WrappedDek")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "KnowledgeId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "OriginalItemId", "LineageScope");
+
+                    b.ToTable("ShSealedKnowledge");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShSealedVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Ciphertext")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EnvelopeMetadata")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("KnowledgeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OriginalKnowledgeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("VersionNumber")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "KnowledgeId", "VersionNumber")
+                        .IsUnique();
+
+                    b.ToTable("ShSealedVersions");
+                });
+
+            modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.ShVaultCryptoContextLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DestinationVaultId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsPrimaryWriteContext")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("PortableCryptoContextId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PrimaryWriteFingerprint")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("PrimaryWriteGeneration")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "DestinationVaultId", "PortableCryptoContextId")
+                        .IsUnique();
+
+                    b.ToTable("ShVaultCryptoContextLinks");
                 });
 
             modelBuilder.Entity("Knowz.SelfHosted.Infrastructure.Data.Entities.SyncTombstone", b =>
@@ -1672,6 +2759,12 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Migrations
 
                     b.Property<Guid>("RemoteVaultId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("SecurityRevision")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<bool>("SyncEnabled")
                         .HasColumnType("boolean");

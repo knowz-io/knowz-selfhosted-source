@@ -3,6 +3,8 @@ import { screen, waitFor, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from './test-utils'
 import KnowledgeDetailPage from '../pages/KnowledgeDetailPage'
 
+vi.mock('../components/portability/AccountEncryptedRecord', () => ({ AccountEncryptedRecord: ({ knowledgeId }: { knowledgeId: string }) => <div>Original encrypted editor: {knowledgeId}</div>, AccountPortableRecovery: () => <div>Locked imported recovery metadata</div> }))
+
 // Mock react-router-dom useParams
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')
@@ -95,6 +97,47 @@ describe('KnowledgeDetailPage - Attachments', () => {
 
   afterEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('routes sealed records to the original-key editor instead of the plaintext editor', async () => {
+    mockGetKnowledge.mockResolvedValueOnce({ id: 'knowledge-1', title: 'Encrypted note', content: '', isEncrypted: true, type: 'Note', tags: [], vaults: [{ id: 'vault-1', name: 'Vault', isPrimary: true }], createdAt: '2026-10-06T00:00:00Z', updatedAt: '2026-10-06T00:00:00Z', isIndexed: false })
+    renderWithProviders(<KnowledgeDetailPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit encrypted content' }))
+    expect(await screen.findByText('Original encrypted editor: knowledge-1')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save', exact: true })).toBeNull()
+    expect(api.updateKnowledge).not.toHaveBeenCalled()
+  })
+  it('opens the original-key workspace for current-only protected fields without claiming an encrypted body', async () => {
+    mockGetKnowledge.mockResolvedValue({ id: 'knowledge-1', title: 'Encrypted item', content: 'Ordinary current body', hasEncryptedFields: true, isEncrypted: false, hasEncryptedAttachments: false, type: 'Note', tags: [], vaults: [{ id: 'vault-1', name: 'Default', isPrimary: true }], createdAt: '2026-01-15T10:00:00Z', updatedAt: '2026-01-15T10:00:00Z', isIndexed: false });
+    renderWithProviders(<KnowledgeDetailPage />);
+    fireEvent.click(await screen.findByText('Original'));
+    expect(await screen.findByText('Original encrypted editor: knowledge-1')).toBeInTheDocument();
+    expect(screen.getByText('Ordinary current body')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit protected fields' }));
+    expect(screen.queryByRole('button', { name: 'Save', exact: true })).toBeNull();
+    expect(api.updateKnowledge).not.toHaveBeenCalled();
+  })
+  it('keeps ordinary notes on the ordinary edit form without an original-key workspace', async () => {
+    renderWithProviders(<KnowledgeDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit', exact: true }));
+    expect(await screen.findByRole('button', { name: 'Save', exact: true })).toBeInTheDocument();
+    expect(screen.queryByText('Original encrypted editor: knowledge-1')).toBeNull();
+  })
+  it('keeps a plain note body readable while routing protected attachment metadata to the original-key workspace', async () => {
+    mockGetKnowledge.mockResolvedValue({ id: 'knowledge-1', title: 'Plain note', content: 'Readable plain note body', hasEncryptedAttachments: true, type: 'Note', tags: [], vaults: [{ id: 'vault-1', name: 'Default', isPrimary: true }], createdAt: '2026-01-15T10:00:00Z', updatedAt: '2026-01-15T10:00:00Z', isIndexed: false });
+    renderWithProviders(<KnowledgeDetailPage />);
+    fireEvent.click(await screen.findByText('Original'));
+    expect(await screen.findByText('Original encrypted editor: knowledge-1')).toBeInTheDocument();
+    expect(screen.getByText('Readable plain note body')).toBeInTheDocument();
+  })
+  it('disables plaintext edits and AI processing for an inactive imported recovery shelf', async () => {
+    mockGetKnowledge.mockResolvedValue({ id: 'knowledge-1', title: 'Suspended import', content: 'must not appear as plain body', portableRecoveryState: 'source-provider-required', type: 'Note', tags: [], vaults: [{ id: 'vault-1', name: 'Default', isPrimary: true }], createdAt: '2026-01-15T10:00:00Z', updatedAt: '2026-01-15T10:00:00Z', isIndexed: false });
+    renderWithProviders(<KnowledgeDetailPage />);
+    expect(await screen.findByText('Locked imported recovery metadata')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled(); expect(screen.getByRole('button', { name: 'Reprocess' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Generate Summary' })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Add a contribution...')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Original')); expect(screen.queryByText('must not appear as plain body')).not.toBeInTheDocument();
   })
 
   it('Should_RenderAttachmentsTab_WhenKnowledgeLoaded', async () => {

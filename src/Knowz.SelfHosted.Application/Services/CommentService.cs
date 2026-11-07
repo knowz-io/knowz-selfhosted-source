@@ -39,6 +39,12 @@ public class CommentService
         if (knowledge == null)
             return null;
 
+        await SelfHostedInactiveShelf.RequireMutableAsync(_db, knowledgeId, ct);
+        var isSealed = await _db.ShSealedKnowledge
+            .AnyAsync(s => s.KnowledgeId == knowledgeId, ct);
+        if (isSealed)
+            throw new SealedItemLockedException();
+
         if (parentCommentId.HasValue)
         {
             var parent = await _db.Comments
@@ -225,7 +231,14 @@ public class CommentService
                     .Where(fa => fa.FileRecordId == fileRecordId && !attachmentIdsBeingRemoved.Contains(fa.Id))
                     .CountAsync(ct);
 
-                if (otherReferenceCount > 0)
+                // Removing one comment attachment does not authorize destroying a retained
+                // version chain. A successor may reference these bytes without a direct link.
+                var retainedHistory = fileRecord != null &&
+                    (!fileRecord.IsCurrentVersion || fileRecord.PreviousFileRecordId.HasValue ||
+                     (fileRecord.RootFileRecordId.HasValue && fileRecord.RootFileRecordId != fileRecord.Id) ||
+                     await _db.FileRecords.AnyAsync(f => f.Id != fileRecordId &&
+                         (f.RootFileRecordId == fileRecordId || f.PreviousFileRecordId == fileRecordId), ct));
+                if (otherReferenceCount > 0 || retainedHistory)
                 {
                     _logger.LogInformation(
                         "Preserving FileRecord {FileRecordId} ({FileName}) — still referenced by {Count} other attachment(s)",
@@ -250,7 +263,8 @@ public class CommentService
                 // reaches the database — the file remains queryable at the next request.
                 try
                 {
-                    await _storage.DeleteAsync(_tenantProvider.TenantId, fileRecordId, ct);
+                    var storageId = await SelfHostedFileObjects.ResolveStorageIdAsync(_db, _tenantProvider.TenantId, fileRecordId, ct);
+                    await _storage.DeleteAsync(_tenantProvider.TenantId, storageId, ct);
                     fileRecord.IsDeleted = true;
                     fileRecord.UpdatedAt = DateTime.UtcNow;
 

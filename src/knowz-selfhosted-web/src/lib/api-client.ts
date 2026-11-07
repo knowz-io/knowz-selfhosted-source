@@ -1,3 +1,4 @@
+import { createArchivePeerTransport, type ArchivePeerBinding, type ArchivePeerReview, type ArchivePeerReceipt } from './archive-peer-api'
 import { normalizeUser } from './types'
 import type {
   KnowledgeItem,
@@ -66,6 +67,7 @@ import type {
   CommitHistoryResponse,
   PlatformConnectionDto,
   UpsertPlatformConnectionRequest,
+  EstablishSyncLinkRequest,
   PlatformConnectionTestResult,
   PlatformVaultListDto,
   PlatformKnowledgeListDto,
@@ -94,6 +96,14 @@ export class ApiError extends Error {
     super(message)
     this.name = 'ApiError'
   }
+}
+
+function savedArchivePeerTransport() {
+  return createArchivePeerTransport({ baseUrl: getApiUrl, headers: () => {
+    const headers: Record<string, string> = {}; const token = getAuthToken(); const key = getApiKey(); const tenant = getActiveTenantId();
+    if (token) headers.Authorization = `Bearer ${token}`; else if (key) headers['X-Api-Key'] = key;
+    if (tenant) headers['X-Tenant-Id'] = tenant; return headers;
+  } })
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -978,30 +988,76 @@ export const api = {
       body: JSON.stringify({ platformApiUrl, apiKey }),
     }),
 
+  // --- Destinations: multiple connections (ADR_G6 #1043, UI_SH_PeerDestination) ---
+  // Additive routes. The legacy /connection* methods above keep addressing the tenant's
+  // PRIMARY (earliest-created) connection, so the Cloud card stays on them.
+  listPlatformConnections: () =>
+    request<PlatformConnectionDto[]>('/api/v1/sync/connections'),
+
+  createPlatformConnection: (body: UpsertPlatformConnectionRequest) =>
+    request<PlatformConnectionDto>('/api/v1/sync/connections', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  updatePlatformConnection: (connectionId: string, body: UpsertPlatformConnectionRequest) =>
+    request<PlatformConnectionDto>(`/api/v1/sync/connections/${connectionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  deletePlatformConnectionById: (connectionId: string) =>
+    request<void>(`/api/v1/sync/connections/${connectionId}`, {
+      method: 'DELETE',
+    }),
+
+  testPlatformConnectionById: (connectionId: string) =>
+    request<PlatformConnectionTestResult>(`/api/v1/sync/connections/${connectionId}/test`, {
+      method: 'POST',
+    }),
+
   // --- Knowz Cloud connect: Browsing ---
-  listPlatformVaults: () =>
-    request<PlatformVaultListDto>('/api/v1/sync/platform/vaults'),
+  // Every browse route accepts an optional connectionId so a non-primary destination can be
+  // browsed; omitted → the primary connection (legacy behaviour).
+  listPlatformVaults: (connectionId?: string) =>
+    request<PlatformVaultListDto>(
+      `/api/v1/sync/platform/vaults${buildQuery({ connectionId })}`,
+    ),
 
   listPlatformKnowledge: (
     vaultId: string,
     page: number = 1,
     pageSize: number = 25,
     search?: string,
+    connectionId?: string,
   ) =>
     request<PlatformKnowledgeListDto>(
       `/api/v1/sync/platform/vaults/${vaultId}/knowledge${buildQuery({
         page: String(page),
         pageSize: String(pageSize),
         search,
+        connectionId,
       })}`,
     ),
 
-  getPlatformKnowledge: (knowledgeId: string) =>
-    request<PlatformKnowledgeDetailDto>(`/api/v1/sync/platform/knowledge/${knowledgeId}`),
+  getPlatformKnowledge: (knowledgeId: string, connectionId?: string) =>
+    request<PlatformKnowledgeDetailDto>(
+      `/api/v1/sync/platform/knowledge/${knowledgeId}${buildQuery({ connectionId })}`,
+    ),
 
   // --- Knowz Cloud connect: Links & Item Ops ---
+  getSavedPeer: (linkId: string, signal: AbortSignal): Promise<ArchivePeerReview> => savedArchivePeerTransport().review(linkId, signal),
+  registerSavedPeer: (linkId: string, input: { localSourceBaseUrl: string; expectedBindingRevision?: string }, signal: AbortSignal): Promise<ArchivePeerBinding> => savedArchivePeerTransport().register(linkId, input, signal),
+  transferSavedPeer: (linkId: string, direction: 'pull' | 'push', binding: ArchivePeerBinding, signal: AbortSignal): Promise<ArchivePeerReceipt> => savedArchivePeerTransport().transfer(linkId, direction, binding, signal),
+
   listSyncLinks: () =>
     request<VaultSyncStatusDto[]>('/api/v1/sync/links'),
+
+  establishSyncLink: (body: EstablishSyncLinkRequest) =>
+    request<VaultSyncStatusDto>('/api/v1/sync/links', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   removeSyncLink: (localVaultId: string) =>
     request<void>(`/api/v1/sync/links/${localVaultId}`, {

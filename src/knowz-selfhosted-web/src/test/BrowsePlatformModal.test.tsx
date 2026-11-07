@@ -118,7 +118,7 @@ describe('BrowsePlatformModal', () => {
     })
     await user.click(screen.getByText('Vault A'))
     await waitFor(() => {
-      expect(mockListKnowledge).toHaveBeenCalledWith('vault-a', 1, 25, undefined)
+      expect(mockListKnowledge).toHaveBeenCalledWith('vault-a', 1, 25, undefined, undefined)
       expect(screen.getByText('First Item')).toBeInTheDocument()
     })
   })
@@ -138,7 +138,7 @@ describe('BrowsePlatformModal', () => {
     // Debounced search triggers a single new call with the trimmed query.
     await waitFor(
       () => {
-        expect(mockListKnowledge).toHaveBeenCalledWith('vault-a', 1, 25, 'hello')
+        expect(mockListKnowledge).toHaveBeenCalledWith('vault-a', 1, 25, 'hello', undefined)
       },
       { timeout: 2000 },
     )
@@ -232,5 +232,86 @@ describe('BrowsePlatformModal', () => {
       expect(screen.getByText('First Item')).toBeInTheDocument()
     })
     expect(screen.getByRole('button', { name: /pull selected/i })).toBeDisabled()
+  })
+})
+
+// ---------- UI_SH_PeerDestination : destination picker ----------
+describe('BrowsePlatformModal — destination picker (UI_SH_PeerDestination)', () => {
+  const base = {
+    hasApiKey: true,
+    apiKeyMask: 'ukz_****ABCD',
+    remoteTenantId: null,
+    lastTestedAt: null,
+    lastTestStatus: 'Ok' as const,
+    lastTestError: null,
+    updatedAt: '2026-09-23T00:00:00Z',
+  }
+  const cloud = { ...base, id: 'c-cloud', platformApiUrl: 'https://api.knowz.io', displayName: null }
+  const peer = {
+    ...base,
+    id: 'c-peer',
+    platformApiUrl: 'https://knowz.example.com',
+    displayName: 'Office instance',
+  }
+
+  beforeEach(() => {
+    mockListVaults.mockResolvedValue({ vaults: [vaultA], totalCount: 1 })
+    mockListKnowledge.mockResolvedValue({ items: [knowledgeItem], page: 1, pageSize: 25, totalCount: 1 })
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('Should_BrowseThePrimary_WithoutAPicker_WhenOnlyOneConnection', async () => {
+    renderWithProviders(
+      <BrowsePlatformModal links={[link]} connections={[cloud]} onClose={() => {}} />,
+    )
+    expect(screen.getByRole('heading', { name: 'Browse Knowz Cloud' })).toBeInTheDocument()
+    expect(screen.queryByTestId('browse-destination-picker')).toBeNull()
+    await waitFor(() => {
+      expect(mockListVaults).toHaveBeenCalledWith('c-cloud')
+    })
+  })
+
+  it('Should_SwitchDestination_AndRebrowse_WithTheSelectedConnectionId', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <BrowsePlatformModal links={[link]} connections={[cloud, peer]} onClose={() => {}} />,
+    )
+    await waitFor(() => {
+      expect(mockListVaults).toHaveBeenCalledWith('c-cloud')
+    })
+    await user.selectOptions(screen.getByTestId('browse-destination-picker'), 'c-peer')
+    expect(screen.getByRole('heading', { name: 'Browse Office instance' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mockListVaults).toHaveBeenCalledWith('c-peer')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Vault A')).toBeInTheDocument()
+    })
+    await user.click(screen.getByText('Vault A'))
+    await waitFor(() => {
+      expect(mockListKnowledge).toHaveBeenCalledWith('vault-a', 1, 25, undefined, 'c-peer')
+    })
+  })
+
+  it('Should_NotReuseACloudLink_ForTheSameVaultIdOnAPeer', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <BrowsePlatformModal links={[link]} connections={[cloud, peer]} onClose={() => {}} />,
+    )
+    await user.selectOptions(screen.getByTestId('browse-destination-picker'), 'c-peer')
+    await waitFor(() => {
+      expect(screen.getByText('Vault A')).toBeInTheDocument()
+    })
+    await user.click(screen.getByText('Vault A'))
+    await waitFor(() => {
+      expect(screen.getByText('First Item')).toBeInTheDocument()
+    })
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /pull selected/i }))
+    expect(screen.getByText(/No sync link exists for this vault on Office instance/)).toBeInTheDocument()
+    expect(mockPullItem).not.toHaveBeenCalled()
   })
 })

@@ -40,7 +40,7 @@ public class DatabaseSearchService : ISearchService
         var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
         // Match any term in any field (OR across terms, OR across fields)
-        var dbQuery = _db.KnowledgeItems.AsQueryable();
+        var dbQuery = PortableProcessingPolicy.AllowedKnowledge(_db);
         foreach (var term in terms)
         {
             var pattern = $"%{term}%";

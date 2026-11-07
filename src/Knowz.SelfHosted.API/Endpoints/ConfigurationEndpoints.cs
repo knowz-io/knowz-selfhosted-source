@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Knowz.Core.Interfaces;
 using Knowz.SelfHosted.API.Helpers;
+using Knowz.SelfHosted.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace Knowz.SelfHosted.API.Endpoints;
@@ -10,6 +11,34 @@ public static class ConfigurationEndpoints
     public static void MapConfigurationEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/v1/admin/config").WithTags("Configuration");
+
+        // Instance-wide provider changes require an operator JWT and an unfiltered data census.
+        group.MapGet("/embedding-space", async (HttpContext context, SelfHostedDbContext db) =>
+        {
+            var authorization = context.Request.Headers.Authorization.ToString();
+            var credential = authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? authorization[7..].Trim() : string.Empty;
+            if (context.User.Identity?.IsAuthenticated != true || !AuthorizationHelpers.IsSuperAdmin(context)
+                || credential.Count(c => c == '.') != 2 || context.Request.Headers.ContainsKey("X-Api-Key"))
+                return AuthorizationHelpers.Forbidden();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            try
+            {
+                var populated = await db.KnowledgeItems.IgnoreQueryFilters().AnyAsync(timeout.Token)
+                    || await db.ContentChunks.IgnoreQueryFilters().AnyAsync(timeout.Token)
+                    || await db.KnowledgeVersions.IgnoreQueryFilters().AnyAsync(timeout.Token)
+                    || await db.ShSealedKnowledge.IgnoreQueryFilters().AnyAsync(timeout.Token)
+                    || await db.ShSealedVersions.IgnoreQueryFilters().AnyAsync(timeout.Token);
+                return Results.Ok(new { canChange = !populated, reason = populated
+                    ? "This instance contains retained knowledge or index data. Changing its embedding space requires a supported reindex migration."
+                    : "No retained knowledge or index data exists across this instance. Recheck immediately before applying provider configuration." });
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException && ex is not StackOverflowException)
+            {
+                return Results.Json(new { canChange = false, reason = "The instance-wide data census could not be completed. Provider migration is blocked." }, statusCode: 503);
+            }
+        }).Produces<object>().Produces(403).Produces(503);
 
         group.MapGet("/categories", async (HttpContext context, IConfigurationManagementService svc) =>
         {

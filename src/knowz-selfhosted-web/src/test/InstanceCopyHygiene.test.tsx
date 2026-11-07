@@ -67,10 +67,12 @@ describe('SH_InstanceCopyHygiene — one name for the Destinations feature (C1, 
     expect(read('../pages/admin/PlatformSyncPage.tsx')).toContain(`<h1 className="text-2xl font-bold">${NAME}</h1>`)
     expect(read('../components/platform-sync/BrowsePlatformModal.tsx')).toContain('Browse Knowz Cloud')
     // GAP-3 lead ruling: only the page <h1> carries the feature name. The card
-    // heading is a plain section heading so the route renders exactly one.
+    // heading is the destination's own label (UI_SH_PeerDestination: "Knowz Cloud",
+    // a display name, or a peer host) so the route renders exactly one feature heading.
     expect(read('../components/platform-sync/ConnectionCard.tsx'))
-      .toContain('<h2 className="text-lg font-semibold">Connection</h2>')
+      .toContain('<h2 className="text-lg font-semibold">{heading}</h2>')
     expect(read('../components/platform-sync/ConnectionCard.tsx')).not.toContain(NAME)
+    expect(read('../components/platform-sync/ConnectionList.tsx')).not.toMatch(/<h[12][^>]*>[^<]*Destinations/)
   })
 
   it('Should_RenderExactlyOneFeatureHeading_OnTheDestinationsRoute', () => {

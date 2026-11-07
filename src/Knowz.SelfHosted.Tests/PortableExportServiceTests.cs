@@ -4,6 +4,7 @@ using Knowz.Core.Entities;
 using Knowz.Core.Enums;
 using Knowz.Core.Interfaces;
 using Knowz.Core.Schema;
+using Knowz.Core.Portability;
 using Knowz.SelfHosted.Application.Services;
 using Knowz.SelfHosted.Infrastructure.Data;
 using Knowz.SelfHosted.Infrastructure.Interfaces;
@@ -307,4 +308,40 @@ public class PortableExportServiceTests : IDisposable
         Assert.Null(pk.PrimaryVaultId);
         Assert.Contains(vault.Id, pk.VaultIds);
     }
+    [Fact]
+    public async Task ExportAsync_ScopedTrimsForeignAndDeletedReferencesWithoutChangingTrackedEntities()
+    {
+        var vault = new Vault { TenantId = TenantId, Name = "selected" };
+        var foreignVault = new Vault { TenantId = Guid.NewGuid(), Name = "foreign" };
+        var foreignPerson = new Person { TenantId = foreignVault.TenantId, Name = "foreign person" };
+        var deletedLocation = new Location { TenantId = TenantId, Name = "deleted", IsDeleted = true };
+        var item = new Knowledge { TenantId = TenantId, Title = "selected" };
+        _db.Vaults.AddRange(vault, foreignVault); _db.Persons.Add(foreignPerson); _db.Locations.Add(deletedLocation); _db.KnowledgeItems.Add(item);
+        _db.KnowledgeVaults.AddRange(
+            new KnowledgeVault { KnowledgeId = item.Id, VaultId = vault.Id, TenantId = TenantId, IsPrimary = true },
+            new KnowledgeVault { KnowledgeId = item.Id, VaultId = foreignVault.Id, TenantId = TenantId });
+        _db.KnowledgePersons.Add(new KnowledgePerson { KnowledgeId = item.Id, PersonId = foreignPerson.Id });
+        _db.KnowledgeLocations.Add(new KnowledgeLocation { KnowledgeId = item.Id, LocationId = deletedLocation.Id });
+        await _db.SaveChangesAsync();
+        var package = await _svc.ExportAsync(new ExportScope { Type = ExportScopeType.SingleItem, KnowledgeItemIds = [item.Id] });
+        var exported = Assert.Single(package.Data.KnowledgeItems);
+        Assert.Equal(vault.Id, Assert.Single(exported.VaultIds));
+        Assert.Empty(exported.PersonIds); Assert.Empty(exported.PersonLinks!); Assert.Empty(exported.LocationIds);
+        Assert.Empty(package.Data.Persons); Assert.Empty(package.Data.Locations);
+        Assert.Equal(2, item.KnowledgeVaults.Count);
+        Assert.Single(item.KnowledgePersons);
+        Assert.All(_db.ChangeTracker.Entries(), e => Assert.Equal(EntityState.Unchanged, e.State));
+    }
+
+    [Fact]
+    public async Task ExportAsync_ScopedEmptyVaultDoesNotExportUnrelatedData()
+    {
+        var vault = new Vault { TenantId = TenantId, Name = "empty" };
+        _db.Vaults.Add(vault); _db.KnowledgeItems.Add(new Knowledge { TenantId = TenantId, Title = "unrelated" });
+        await _db.SaveChangesAsync();
+        var package = await _svc.ExportAsync(new ExportScope { Type = ExportScopeType.Vault, VaultIds = [vault.Id] });
+        Assert.Single(package.Data.Vaults); Assert.Empty(package.Data.KnowledgeItems);
+        Assert.Equal(0, package.Metadata.TotalKnowledgeItems);
+    }
+
 }

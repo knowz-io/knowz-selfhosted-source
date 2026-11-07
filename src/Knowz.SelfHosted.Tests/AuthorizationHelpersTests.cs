@@ -153,6 +153,27 @@ public class AuthorizationHelpersTests
         Assert.Null(result);
     }
 
+    /// <summary>
+    /// JwtSecurityTokenHandler maps inbound "sub" to ClaimTypes.NameIdentifier by default, which
+    /// is what AuthenticationMiddleware hands endpoints. The helper must read that form too
+    /// (surfaced by the ADR_G6 receive routes, which require a user identity).
+    /// </summary>
+    [Fact]
+    public void GetCallerId_ExtractsUserId_FromMappedNameIdentifierClaim()
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.Role, "User"),
+            new(ClaimTypes.NameIdentifier, TestUserId.ToString()),
+        };
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth", ClaimTypes.Name, ClaimTypes.Role))
+        };
+
+        Assert.Equal(TestUserId, AuthorizationHelpers.GetCallerId(context));
+    }
+
     // --- CanAssignRole ---
 
     [Fact]

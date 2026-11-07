@@ -24,14 +24,14 @@ public class VaultAccessService : IVaultAccessService
         bool requireWrite = false, bool requireDelete = false, bool requireManage = false,
         CancellationToken ct = default)
     {
-        var permissions = await _context.UserPermissions
+        var permissions = await _context.UserPermissions.AsNoTracking()
             .FirstOrDefaultAsync(p => p.UserId == userId, ct);
 
         // No permissions record = full access (backward compatibility)
         if (permissions == null || permissions.HasAllVaultsAccess)
             return true;
 
-        var access = await _context.UserVaultAccess
+        var access = await _context.UserVaultAccess.AsNoTracking()
             .FirstOrDefaultAsync(va => va.UserId == userId && va.VaultId == vaultId, ct);
 
         if (access == null)

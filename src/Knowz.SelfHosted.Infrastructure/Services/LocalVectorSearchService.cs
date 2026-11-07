@@ -55,7 +55,7 @@ public class LocalVectorSearchService : ISearchService
         try
         {
             // Build base query for knowledge items (tenant-scoped via global query filter)
-            var baseQuery = _db.KnowledgeItems.AsQueryable();
+            var baseQuery = PortableProcessingPolicy.AllowedKnowledge(_db);
 
             // Apply vault filter
             if (vaultId.HasValue)
@@ -482,7 +482,7 @@ public class LocalVectorSearchService : ISearchService
         if (terms.Length == 0)
             return new List<SearchResultItem>();
 
-        var baseQuery = _db.KnowledgeItems.AsQueryable();
+        var baseQuery = PortableProcessingPolicy.AllowedKnowledge(_db);
         foreach (var term in terms)
         {
             var pattern = $"%{term}%";

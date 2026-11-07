@@ -33,7 +33,7 @@ public static class DatabaseExtensions
         {
             var dbOptions = sp.GetRequiredService<DbContextOptions<SelfHostedDbContext>>();
             var tenantProvider = sp.GetRequiredService<ITenantProvider>();
-            return new SelfHostedDbContext(dbOptions, tenantProvider);
+            return new SelfHostedDbContext(dbOptions, tenantProvider, sp.GetService<IPortableActorProvider>());
         });
 
         // SelfHostedAbstractionSeams: expose IRelationalStore over the scoped DbContext.

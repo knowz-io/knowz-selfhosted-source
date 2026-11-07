@@ -20,7 +20,7 @@ public class PlatformAuditLogService : IPlatformAuditLog
 
     // Matches ukz_ API keys (self-hosted + platform format): ukz_ followed by 8+ alnum chars.
     private static readonly Regex ApiKeyPattern = new(
-        @"\bukz_[A-Za-z0-9]{8,}",
+        @"\b(?:ukz_|kz_|ksh_)[A-Za-z0-9]{8,}",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     // Matches Authorization: Bearer / X-Api-Key: ... headers leaked into exception messages.
@@ -195,7 +195,7 @@ public class PlatformAuditLogService : IPlatformAuditLog
             return string.Empty;
 
         var cleaned = raw;
-        cleaned = ApiKeyPattern.Replace(cleaned, "ukz_****REDACTED");
+        cleaned = ApiKeyPattern.Replace(cleaned, static m => RedactApiKeyMatch(m.Value));
         cleaned = AuthHeaderPattern.Replace(cleaned, "$1: [redacted]");
         cleaned = BasicAuthUrlPattern.Replace(cleaned, "$1****REDACTED@");
 
@@ -219,6 +219,14 @@ public class PlatformAuditLogService : IPlatformAuditLog
         r.ErrorMessage,
         r.StartedAt,
         r.CompletedAt);
+
+
+    private static string RedactApiKeyMatch(string value)
+    {
+        var underscore = value.IndexOf('_');
+        var prefix = underscore >= 0 ? value.Substring(0, underscore + 1) : "key_";
+        return prefix + "****REDACTED";
+    }
 
     private static string? Truncate(string? s, int max)
     {

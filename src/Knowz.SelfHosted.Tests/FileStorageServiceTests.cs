@@ -3,6 +3,7 @@ using Knowz.Core.Interfaces;
 using Knowz.SelfHosted.Application.DTOs;
 using Knowz.SelfHosted.Application.Services;
 using Knowz.SelfHosted.Infrastructure.Data;
+using Knowz.SelfHosted.Infrastructure.Data.Entities;
 using Knowz.SelfHosted.Infrastructure.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -445,6 +446,26 @@ public class FileStorageServiceTests : IDisposable
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => _svc.AttachToKnowledgeAsync(fileRecord.Id, Guid.NewGuid()));
+    }
+
+    [Fact]
+    public async Task AttachToKnowledge_ThrowsWhenItemIsSealed()
+    {
+        var fileRecord = await SeedFileRecord();
+        var knowledge = await SeedKnowledge();
+        _db.ShSealedKnowledge.Add(new ShSealedKnowledge
+        {
+            Id = Guid.NewGuid(),
+            TenantId = TenantId,
+            KnowledgeId = knowledge.Id,
+            OriginalItemId = knowledge.Id,
+            Ciphertext = "cipher-body",
+        });
+        await _db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<SealedItemLockedException>(
+            () => _svc.AttachToKnowledgeAsync(fileRecord.Id, knowledge.Id));
+        Assert.Equal(0, await _db.FileAttachments.CountAsync());
     }
 
     // =============================================

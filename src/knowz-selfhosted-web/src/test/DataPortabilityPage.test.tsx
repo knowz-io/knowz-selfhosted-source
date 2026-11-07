@@ -1,3 +1,4 @@
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ user: { id: 'user-test' }, activeTenantId: 'tenant-test', apiUrl: 'http://localhost:8080' }) }))
 import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from './test-utils'

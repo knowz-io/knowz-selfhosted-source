@@ -33,6 +33,17 @@ public interface IVaultSyncOrchestrator
     Task<bool> RemoveLinkAsync(Guid localVaultId, CancellationToken ct = default);
 
     /// <summary>
+    /// Receive side (ADR_G6_Allowlisted_Peer_Destinations, #1043): import a delta package pushed
+    /// by a peer into <paramref name="localVaultId"/> using the same last-write-wins path the
+    /// pull lane uses. Callers enforce auth, vault write access and the
+    /// <c>VaultSyncOrchestrator.BulkItemCap</c> before invoking.
+    /// </summary>
+    Task<SyncDeltaImportResult> ImportSyncDeltaAsync(
+        global::Knowz.Core.Portability.PortableExportPackage package,
+        Guid localVaultId,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Pull or push a single knowledge item. Enforces the shared rate limiter (V-SEC-09)
     /// and the conflict strategy rules (V-SEC-11): Pull defaults to Skip when the local
     /// item exists; Overwrite must be opt-in via <paramref name="overwriteLocal"/>.

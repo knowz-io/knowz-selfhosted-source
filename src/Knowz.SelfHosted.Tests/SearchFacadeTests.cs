@@ -50,6 +50,17 @@ public class SearchFacadeTests : IDisposable
         _db.Dispose();
     }
 
+    private List<SearchResultItem> SeedCurrentSearchResults(List<SearchResultItem> results)
+    {
+        // Renderer/provider fixtures represent current tenant records. Unbacked cached IDs are
+        // intentionally rejected by the live protection/ownership fence.
+        foreach (var result in results)
+            if (!_db.KnowledgeItems.Any(k => k.Id == result.KnowledgeId))
+                _db.KnowledgeItems.Add(new Knowledge { Id = result.KnowledgeId, TenantId = TenantId,
+                    Title = result.Title ?? "", Content = result.Content ?? "", Summary = result.Summary });
+        _db.SaveChanges(); return results;
+    }
+
     [Fact]
     public async Task SearchKnowledgeAsync_ReturnsSearchResponse()
     {
@@ -68,7 +79,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         var result = await _svc.SearchKnowledgeAsync(
             "test query", 10, null, false, new List<string>(), false, null, null, null, CancellationToken.None);
@@ -95,7 +106,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         _openAIService.AnswerQuestionAsync(
             Arg.Any<string>(), Arg.Any<List<SearchResultItem>>(),
@@ -181,7 +192,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         var result = await _svc.SearchKnowledgeAsync(
             "test", 10, null, false, new List<string>(), false, null, null, null, CancellationToken.None);
@@ -212,7 +223,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         var result = await _svc.SearchKnowledgeAsync(
             "test", 10, null, false, new List<string>(), false, null, null, null, CancellationToken.None);
@@ -239,7 +250,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         var result = await _svc.SearchKnowledgeAsync(
             "test", 10, null, false, new List<string>(), false, null, null, null, CancellationToken.None);
@@ -269,7 +280,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         _openAIService.AnswerQuestionAsync(
             Arg.Any<string>(), Arg.Any<List<SearchResultItem>>(),
@@ -311,7 +322,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         _openAIService.AnswerQuestionAsync(
             Arg.Any<string>(), Arg.Any<List<SearchResultItem>>(),
@@ -356,7 +367,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         string? capturedQuestion = null;
         _openAIService.AnswerQuestionAsync(
@@ -408,7 +419,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         string? capturedQuestion = null;
         _openAIService.AnswerQuestionAsync(
@@ -463,7 +474,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         _openAIService.AnswerQuestionAsync(
             Arg.Any<string>(), Arg.Any<List<SearchResultItem>>(),
@@ -507,7 +518,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         _openAIService.AnswerQuestionAsync(
             Arg.Any<string>(), Arg.Any<List<SearchResultItem>>(),
@@ -541,7 +552,7 @@ public class SearchFacadeTests : IDisposable
             Arg.Any<string>(), Arg.Any<float[]?>(), Arg.Any<Guid?>(), Arg.Any<bool>(),
             Arg.Any<IEnumerable<string>?>(), Arg.Any<bool>(),
             Arg.Any<DateTime?>(), Arg.Any<DateTime?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(searchResults);
+            .Returns(_ => SeedCurrentSearchResults(searchResults));
 
         _openAIService.AnswerQuestionAsync(
             Arg.Any<string>(), Arg.Any<List<SearchResultItem>>(),

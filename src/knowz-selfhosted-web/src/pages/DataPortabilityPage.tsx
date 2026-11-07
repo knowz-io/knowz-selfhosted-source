@@ -1,3 +1,4 @@
+import { AccountArchivePanel } from '../components/portability/AccountArchivePanel'
 import { useState, useRef } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
@@ -162,6 +163,7 @@ export default function DataPortabilityPage() {
 
   return (
     <div className="space-y-4 max-w-2xl">
+      <AccountArchivePanel />
       {/* Schema info + pointer to the live plane */}
       <SurfaceCard className="border-blue-200/90 bg-blue-50/80 px-3 py-2 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-300">
         <div className="flex items-start gap-2">

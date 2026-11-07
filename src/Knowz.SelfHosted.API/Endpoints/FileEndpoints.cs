@@ -130,13 +130,18 @@ public static class FileEndpoints
                 var result = await svc.AttachToKnowledgeAsync(req.FileRecordId, knowledgeId, ct);
                 return Results.Created($"/api/v1/knowledge/{knowledgeId}/attachments/{result.Id}", result);
             }
+            catch (SealedItemLockedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
             catch (InvalidOperationException ex)
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
         })
         .Produces<FileAttachmentDto>(201)
-        .Produces(400);
+        .Produces(400)
+        .Produces(409);
 
         // GET /api/knowledge/{knowledgeId}/attachments -- list attached files
         knowledgeGroup.MapGet("/", async (
@@ -187,13 +192,18 @@ public static class FileEndpoints
                 var result = await svc.AttachToCommentAsync(req.FileRecordId, commentId, ct);
                 return Results.Created($"/api/v1/comments/{commentId}/attachments/{result.Id}", result);
             }
+            catch (SealedItemLockedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
             catch (InvalidOperationException ex)
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
         })
         .Produces<FileAttachmentDto>(201)
-        .Produces(400);
+        .Produces(400)
+        .Produces(409);
 
         // GET /api/comments/{commentId}/attachments -- list attached files
         commentGroup.MapGet("/", async (

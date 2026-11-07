@@ -62,6 +62,7 @@ public class SearchFacade
         var results = await _searchService.HybridSearchAsync(
             query, embedding, vaultId, includeChildVaults,
             tags.Count > 0 ? tags : null, requireAllTags, startDate, endDate, fetchLimit, ct);
+        results = await ExcludeInactiveRecoveryAsync(results, ct);
 
         // Post-filter by vault access
         if (accessibleVaultIds != null)
@@ -134,6 +135,7 @@ public class SearchFacade
             expandedQuery, embedding, vaultId, includeDescendants: true,
             maxResults: researchMode ? 15 : 10,
             cancellationToken: ct);
+        searchResults = await ExcludeInactiveRecoveryAsync(searchResults, ct);
 
         // Post-filter by vault access
         if (accessibleVaultIds != null)
@@ -158,7 +160,7 @@ public class SearchFacade
         string pattern, bool countOnly, int limit, CancellationToken ct)
     {
         var likePattern = KnowledgeService.ConvertWildcardToLike(pattern);
-        var query = _db.KnowledgeItems
+        var query = CurrentReadableKnowledge()
             .Where(k => k.FilePath != null && EF.Functions.Like(k.FilePath, likePattern));
 
         if (countOnly)
@@ -180,7 +182,7 @@ public class SearchFacade
         string pattern, bool countOnly, int limit, CancellationToken ct)
     {
         var likePattern = KnowledgeService.ConvertWildcardToLike(pattern);
-        var query = _db.KnowledgeItems
+        var query = CurrentReadableKnowledge()
             .Where(k => EF.Functions.Like(k.Title, likePattern));
 
         if (countOnly)
@@ -212,6 +214,7 @@ public class SearchFacade
             expandedQuery, embedding, vaultId, includeDescendants: true,
             maxResults: researchMode ? 15 : 10,
             cancellationToken: ct);
+        searchResults = await ExcludeInactiveRecoveryAsync(searchResults, ct);
 
         if (accessibleVaultIds != null)
             searchResults = await FilterByVaultAccessAsync(searchResults, accessibleVaultIds, ct);
@@ -268,6 +271,7 @@ public class SearchFacade
                 expandedQuery, embedding, vaultId, includeDescendants: true,
                 maxResults: researchMode ? 15 : 10,
                 cancellationToken: ct);
+            searchResults = await ExcludeInactiveRecoveryAsync(searchResults, ct);
 
             if (accessibleVaultIds != null)
                 searchResults = await FilterByVaultAccessAsync(searchResults, accessibleVaultIds, ct);
@@ -283,6 +287,7 @@ public class SearchFacade
                 var secondPass = await _searchService.HybridSearchAsync(
                     expandedQuery, embedding, vaultId, includeDescendants: true,
                     maxResults: 25, cancellationToken: ct);
+        secondPass = await ExcludeInactiveRecoveryAsync(secondPass, ct);
 
                 // Post-filter second pass by vault access
                 if (accessibleVaultIds != null)
@@ -354,6 +359,7 @@ public class SearchFacade
                 expandedQuery, embedding, vaultId, includeDescendants: true,
                 maxResults: researchMode ? 15 : 10,
                 cancellationToken: ct);
+            searchResults = await ExcludeInactiveRecoveryAsync(searchResults, ct);
 
             // Post-filter by vault access
             if (accessibleVaultIds != null)
@@ -370,6 +376,7 @@ public class SearchFacade
                 var secondPass = await _searchService.HybridSearchAsync(
                     expandedQuery, embedding, vaultId, includeDescendants: true,
                     maxResults: 25, cancellationToken: ct);
+        secondPass = await ExcludeInactiveRecoveryAsync(secondPass, ct);
 
                 // Post-filter second pass by vault access
                 if (accessibleVaultIds != null)
@@ -435,9 +442,9 @@ public class SearchFacade
         Guid knowledgeId, string question, CancellationToken ct)
     {
         // FEAT_SelfHostedTemporalAwareness: project CreatedAt/UpdatedAt
-        var knowledge = await _db.KnowledgeItems
+        var knowledge = await CurrentReadableKnowledge()
             .AsNoTracking()
-            .Where(k => k.Id == knowledgeId)
+            .Where(k => k.Id == knowledgeId && k.PortableRecoveryState == null)
             .Select(k => new
             {
                 k.Id,
@@ -658,6 +665,26 @@ public class SearchFacade
     /// <summary>
     /// Post-filters search results to only include items belonging to accessible vaults (or items with no vault).
     /// </summary>
+    private async Task<List<SearchResultItem>> ExcludeInactiveRecoveryAsync(List<SearchResultItem>? results, CancellationToken ct)
+    {
+        if (results == null || results.Count == 0) return [];
+        var ids = results.Select(r => r.KnowledgeId).ToArray();
+        var allowed = (await CurrentReadableKnowledge().AsNoTracking().Where(k => ids.Contains(k.Id)).Select(k => k.Id).ToListAsync(ct)).ToHashSet();
+        return results.Where(r => allowed.Contains(r.KnowledgeId)).ToList();
+    }
+
+    private IQueryable<Knowz.Core.Entities.Knowledge> CurrentReadableKnowledge()
+    {
+        var query = PortableProcessingPolicy.AllowedKnowledge(_db);
+        if (_db.PortableActorId is not Guid actor) return query; // Existing tenant-service API authority.
+        var tenant = _db.CurrentTenantId;
+        return query.Where(k => _db.Users.Any(u => u.Id == actor && u.IsActive
+                && (_db.UserTenantMemberships.Any(m => m.UserId == actor && m.TenantId == tenant && m.IsActive)
+                    || u.TenantId == tenant && !_db.UserTenantMemberships.Any(m => m.UserId == actor && m.TenantId == tenant)))
+            && (!_db.UserPermissions.Any(p => p.UserId == actor && p.TenantId == tenant && !p.HasAllVaultsAccess)
+                || _db.KnowledgeVaults.Any(v => v.KnowledgeId == k.Id && _db.UserVaultAccess.Any(a => a.UserId == actor && a.TenantId == tenant && a.VaultId == v.VaultId && a.CanRead))));
+    }
+
     private async Task<List<SearchResultItem>> FilterByVaultAccessAsync(
         List<SearchResultItem> results, List<Guid> accessibleVaultIds, CancellationToken ct)
     {

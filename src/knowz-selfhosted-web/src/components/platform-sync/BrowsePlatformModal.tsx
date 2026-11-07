@@ -18,16 +18,25 @@ import { api, ApiError } from '../../lib/api-client'
 import { useDebounce } from '../../hooks/useDebounce'
 import { useFormatters } from '../../hooks/useFormatters'
 import type {
+  PlatformConnectionDto,
   PlatformVaultDto,
   PlatformKnowledgeSummaryDto,
   SyncItemResult,
   VaultSyncStatusDto,
   SyncConflictStrategy,
 } from '../../lib/types'
+import { describeDestination, linkBelongsTo, primaryConnection } from '../../lib/destinations'
 
 interface BrowsePlatformModalProps {
   links: VaultSyncStatusDto[]
   onClose: () => void
+  /**
+   * UI_SH_PeerDestination (ADR_G6, #1043) — stored connections for the destination picker.
+   * Omitted/empty → the server's primary connection is browsed (legacy behaviour).
+   */
+  connections?: PlatformConnectionDto[]
+  /** Preselect a destination (falls back to the primary). */
+  initialConnectionId?: string
 }
 
 interface ProgressEntry {
@@ -40,8 +49,21 @@ interface ProgressEntry {
 
 const PAGE_SIZE = 25
 
-export default function BrowsePlatformModal({ links, onClose }: BrowsePlatformModalProps) {
+export default function BrowsePlatformModal({
+  links,
+  onClose,
+  connections = [],
+  initialConnectionId,
+}: BrowsePlatformModalProps) {
   const queryClient = useQueryClient()
+  const [connectionId, setConnectionId] = useState<string>(
+    initialConnectionId ?? primaryConnection(connections)?.id ?? '',
+  )
+  const selectedConnection =
+    connections.find((c) => c.id === connectionId) ?? primaryConnection(connections)
+  const destination = describeDestination(selectedConnection)
+  // Older backends may omit `id`; then the browse routes fall back to the server's primary.
+  const browseConnectionId = selectedConnection?.id ?? undefined
   const [selectedVault, setSelectedVault] = useState<PlatformVaultDto | null>(null)
   const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
@@ -63,8 +85,9 @@ export default function BrowsePlatformModal({ links, onClose }: BrowsePlatformMo
   }, [debouncedSearch])
 
   const vaultsQuery = useQuery({
-    queryKey: ['platform-sync', 'browse', 'vaults'],
-    queryFn: async () => (await api.listPlatformVaults()) ?? { vaults: [], totalCount: 0 },
+    queryKey: ['platform-sync', 'browse', 'vaults', browseConnectionId ?? 'primary'],
+    queryFn: async () =>
+      (await api.listPlatformVaults(browseConnectionId)) ?? { vaults: [], totalCount: 0 },
   })
 
   const knowledgeQuery = useQuery({
@@ -72,6 +95,7 @@ export default function BrowsePlatformModal({ links, onClose }: BrowsePlatformMo
       'platform-sync',
       'browse',
       'knowledge',
+      browseConnectionId ?? 'primary',
       selectedVault?.id,
       page,
       debouncedSearch.trim(),
@@ -82,20 +106,39 @@ export default function BrowsePlatformModal({ links, onClose }: BrowsePlatformMo
         page,
         PAGE_SIZE,
         debouncedSearch.trim() || undefined,
+        browseConnectionId,
       )) ?? { items: [], page, pageSize: PAGE_SIZE, totalCount: 0 },
     enabled: !!selectedVault,
   })
 
   const previewQuery = useQuery({
-    queryKey: ['platform-sync', 'browse', 'preview', previewId],
-    queryFn: async () => (await api.getPlatformKnowledge(previewId!)) ?? null,
+    queryKey: ['platform-sync', 'browse', 'preview', browseConnectionId ?? 'primary', previewId],
+    queryFn: async () => (await api.getPlatformKnowledge(previewId!, browseConnectionId)) ?? null,
     enabled: !!previewId,
   })
 
   const items = knowledgeQuery.data?.items ?? []
 
+  // A remote vault id is only meaningful on the destination it was browsed from, so a link
+  // must match both the vault AND (when connections are known) the selected destination.
   const resolveLinkForVault = (vaultId: string): VaultSyncStatusDto | undefined =>
-    links.find((l) => l.remoteVaultId === vaultId)
+    links.find(
+      (l) =>
+        l.remoteVaultId === vaultId &&
+        (selectedConnection ? linkBelongsTo(l, selectedConnection) : true),
+    )
+
+  const handleDestinationChange = (nextId: string) => {
+    setConnectionId(nextId)
+    setSelectedVault(null)
+    setSelectedKnowledgeIds(new Set())
+    setPage(1)
+    setPreviewId(null)
+    setProgress([])
+    setBanner(null)
+    setStrategy('Skip')
+    setOverwriteAcknowledged(false)
+  }
 
   const handleVaultClick = (vault: PlatformVaultDto) => {
     setSelectedVault(vault)
@@ -123,8 +166,7 @@ export default function BrowsePlatformModal({ links, onClose }: BrowsePlatformMo
     if (!link) {
       setBanner({
         kind: 'warning',
-        message:
-          'No sync link exists for this Knowz Cloud vault. Establish a link first from the Vault Links table.',
+        message: `No sync link exists for this vault on ${destination.label}. Link it first with "Link a vault" in the Vault Sync Links table.`,
       })
       return
     }
@@ -201,12 +243,39 @@ export default function BrowsePlatformModal({ links, onClose }: BrowsePlatformMo
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
       <div className="relative bg-card border border-border/60 rounded-xl shadow-xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border/60 bg-muted/30 shrink-0">
-          <h2 className="text-lg font-semibold">Browse Knowz Cloud</h2>
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-border/60 bg-muted/30 shrink-0">
+          <h2 className="text-lg font-semibold">
+            {destination.kind === 'cloud'
+              ? destination.label === 'Knowz Cloud'
+                ? 'Browse Knowz Cloud'
+                : `Browse Knowz Cloud · ${destination.label}`
+              : `Browse ${destination.label}`}
+          </h2>
+          {connections.length > 1 && (
+            <select
+              aria-label="Destination"
+              data-testid="browse-destination-picker"
+              value={selectedConnection?.id ?? ''}
+              onChange={(e) => handleDestinationChange(e.target.value)}
+              disabled={isPulling}
+              className="ml-2 px-2 py-1 text-xs border border-input rounded bg-card focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+            >
+              {connections.map((c, index) => {
+                const d = describeDestination(c)
+                return (
+                  <option key={c.id ?? `${index}:${c.platformApiUrl}`} value={c.id ?? ''}>
+                    {d.label}
+                    {d.label !== d.kindLabel ? ` · ${d.kindLabel}` : ''}
+                    {index === 0 ? ' · Primary' : ''}
+                  </option>
+                )
+              })}
+            </select>
+          )}
           <button
             onClick={onClose}
             disabled={isPulling}
-            className="p-1.5 rounded hover:bg-muted text-muted-foreground disabled:opacity-50"
+            className="ml-auto p-1.5 rounded hover:bg-muted text-muted-foreground disabled:opacity-50"
             aria-label="Close"
           >
             <X size={18} />
@@ -234,7 +303,7 @@ export default function BrowsePlatformModal({ links, onClose }: BrowsePlatformMo
           {/* Left pane: vaults */}
           <div className="w-64 border-r border-border/60 flex flex-col shrink-0">
             <div className="px-4 py-2 border-b border-border/60 bg-muted/20 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Knowz Cloud Vaults
+              {destination.label} vaults
             </div>
             <div className="flex-1 overflow-y-auto">
               {vaultsQuery.isLoading && (
@@ -516,6 +585,7 @@ export default function BrowsePlatformModal({ links, onClose }: BrowsePlatformMo
       {showOverwriteConfirm && selectedVault && (
         <OverwriteConfirmModal
           count={selectedKnowledgeIds.size}
+          destinationLabel={destination.label}
           onCancel={() => setShowOverwriteConfirm(false)}
           onConfirm={() => {
             const link = resolveLinkForVault(selectedVault.id)
@@ -585,10 +655,12 @@ function KnowledgeRow({
 
 function OverwriteConfirmModal({
   count,
+  destinationLabel,
   onCancel,
   onConfirm,
 }: {
   count: number
+  destinationLabel: string
   onCancel: () => void
   onConfirm: () => void
 }) {
@@ -603,8 +675,8 @@ function OverwriteConfirmModal({
           <h3 className="text-lg font-semibold">Confirm Overwrite</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-6">
-          This will replace {count} item{count === 1 ? '' : 's'} on this instance with the Knowz Cloud
-          copy. This action cannot be undone.
+          This will replace {count} item{count === 1 ? '' : 's'} on this instance with the{' '}
+          {destinationLabel} copy. This action cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
           <button

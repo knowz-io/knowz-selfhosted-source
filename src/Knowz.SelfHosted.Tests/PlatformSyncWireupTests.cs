@@ -23,7 +23,7 @@ namespace Knowz.SelfHosted.Tests;
 ///   3. <see cref="PlatformConnectionMigrationService"/> is registered as a hosted service.
 ///   4. The migration service behaviour: idempotency, empty DB, legacy backfill, mixed state,
 ///      multi-tenant isolation, round-trip decryption.
-///   5. Migration schema: PlatformSyncRuns + PlatformConnections tables, unique tenant index,
+///   5. Migration schema: PlatformSyncRuns + PlatformConnections tables, non-unique tenant index + unique (TenantId, PlatformApiUrl),
 ///      filtered in-progress index, and VaultSyncLinks.PlatformConnectionId FK column.
 /// </summary>
 public class PlatformSyncWireupTests
@@ -319,8 +319,12 @@ public class PlatformSyncWireupTests
         Assert.Contains(nameof(PlatformSyncRun.ErrorMessage), columns);
     }
 
+    /// <summary>
+    /// ADR_G6 (#1043): connections are one-of-many per tenant. TenantId stays indexed but is no
+    /// longer unique; the unique key is (TenantId, PlatformApiUrl).
+    /// </summary>
     [Fact]
-    public void Schema_PlatformConnectionsTable_HasUniqueIndexOnTenantId()
+    public void Schema_PlatformConnectionsTable_TenantIdNotUnique_CompositeUrlIndexUnique()
     {
         using var harness = new MigrationHarness();
         var entity = harness.Db.Model.FindEntityType(typeof(PlatformConnection));
@@ -331,7 +335,15 @@ public class PlatformSyncWireupTests
             .SingleOrDefault(ix => ix.Properties.Count == 1
                 && ix.Properties[0].Name == nameof(PlatformConnection.TenantId));
         Assert.NotNull(tenantIdIndex);
-        Assert.True(tenantIdIndex!.IsUnique);
+        Assert.False(tenantIdIndex!.IsUnique);
+
+        var compositeIndex = entity
+            .GetIndexes()
+            .SingleOrDefault(ix => ix.Properties.Count == 2
+                && ix.Properties[0].Name == nameof(PlatformConnection.TenantId)
+                && ix.Properties[1].Name == nameof(PlatformConnection.PlatformApiUrl));
+        Assert.NotNull(compositeIndex);
+        Assert.True(compositeIndex!.IsUnique);
     }
 
     [Fact]

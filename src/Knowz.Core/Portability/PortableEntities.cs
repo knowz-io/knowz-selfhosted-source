@@ -11,6 +11,8 @@ public class PortableVault
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    /// <summary>Optional concise navigation label. Missing in legacy packages.</summary>
+    public string? DisplayName { get; set; }
     public string? Description { get; set; }
     public VaultType? VaultType { get; set; }
     public bool IsDefault { get; set; }
@@ -44,6 +46,10 @@ public class PortableKnowledge
     public string? Summary { get; set; }
     /// <summary>2–3 sentence retrieval context. Dual-edition Core field (v2.1 additive).</summary>
     public string? BriefSummary { get; set; }
+    /// <summary>Exact customer-encrypted metadata sidecar, independent of the ordinary body.</summary>
+    public string? EncryptedFieldsJson { get; set; }
+    /// <summary>Immutable source subject preserved when destination storage IDs change.</summary>
+    public Guid? OriginalItemId { get; set; }
     public KnowledgeType Type { get; set; } = KnowledgeType.Note;
     public string? Source { get; set; }
     public string? FilePath { get; set; }
@@ -134,6 +140,14 @@ public class PortableKnowledge
 /// </summary>
 public class PortableKnowledgeRelationship
 {
+    public Guid Id { get; set; }
+    public Guid OriginalRelationshipId { get; set; }
+    public Guid? SourceKnowledgeId { get; set; }
+    public Guid? TargetKnowledgeId { get; set; }
+    public string? PortableMetadataJson { get; set; }
+    public double? Confidence { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
     /// <summary>
     /// Commit SHA identifying the commit-child source Knowledge.
     /// Set when the source is a <c>Knowledge { Type = Commit }</c>.
@@ -208,6 +222,15 @@ public class PortableKnowledgeComment
 public class PortableFileRecord
 {
     public Guid Id { get; set; }
+    public Guid? OriginalFileId { get; set; }
+    public int FileVersion { get; set; } = 1;
+    public Guid? RootFileRecordId { get; set; }
+    public Guid? PreviousFileRecordId { get; set; }
+    public bool IsCurrentVersion { get; set; } = true;
+    /// <summary>Metadata can be sealed independently of the file's ordinary binary bytes.</summary>
+    public string? EncryptedFieldsJson { get; set; }
+    public string? BinaryEntryPath { get; set; }
+    public string? BinarySha256 { get; set; }
     public string FileName { get; set; } = string.Empty;
     public string? ContentType { get; set; }
     public long SizeBytes { get; set; }
@@ -353,4 +376,25 @@ public class PortableInboxItem
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+
+/// <summary>Recoverable plaintext history; deltas require their declared base graph or materialization.</summary>
+public sealed class PortablePlainVersionRecord
+{
+    public Guid Id { get; set; }
+    public Guid KnowledgeId { get; set; }
+    public Guid OriginalKnowledgeId { get; set; }
+    public long VersionNumber { get; set; }
+    public string Title { get; set; } = "";
+    public string Content { get; set; } = "";
+    public string? Summary { get; set; }
+    public string? Tags { get; set; }
+    public string StorageStrategy { get; set; } = "full";
+    public string? DeltaContent { get; set; }
+    public Guid? BaseVersionId { get; set; }
+    public Guid? PreviousVersionId { get; set; }
+    public string? SnapshotJson { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }

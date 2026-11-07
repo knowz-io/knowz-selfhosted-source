@@ -242,6 +242,8 @@ public class KnowledgeService
         if (item == null)
             return null;
 
+        await EnsurePlaintextMutableAsync(id, ct);
+
         // Capture original values for change-summary computation (post-update snapshot)
         var originalTitle = item.Title;
         var originalContent = item.Content;
@@ -350,12 +352,24 @@ public class KnowledgeService
             : "Updated " + string.Join(", ", parts);
     }
 
+    public async Task<bool> IsSealedAsync(Guid id, CancellationToken ct) =>
+        await _db.ShSealedKnowledge.AnyAsync(s => s.KnowledgeId == id, ct) || await _db.KnowledgeItems.AnyAsync(k => k.Id == id && k.PortableRecoveryState != null, ct);
+
+    private async Task EnsurePlaintextMutableAsync(Guid id, CancellationToken ct)
+    {
+        if (await IsSealedAsync(id, ct))
+            throw new SealedItemLockedException();
+    }
+
     public async Task<BatchMoveResult> BatchMoveToVaultAsync(
         List<Guid> knowledgeIds, Guid targetVaultId, CancellationToken ct)
     {
         var targetVault = await _db.Vaults.FindAsync(new object[] { targetVaultId }, ct);
         if (targetVault == null)
             return new BatchMoveResult(knowledgeIds.Count, 0, new List<Guid>(), knowledgeIds);
+
+        if (await _db.ShSealedKnowledge.AnyAsync(s => knowledgeIds.Contains(s.KnowledgeId), ct) || await _db.KnowledgeItems.AnyAsync(k => knowledgeIds.Contains(k.Id) && k.PortableRecoveryState != null, ct))
+            throw new SealedItemLockedException();
 
         var items = await _db.KnowledgeItems
             .Where(k => knowledgeIds.Contains(k.Id))
@@ -405,6 +419,22 @@ public class KnowledgeService
         return new BatchMoveResult(knowledgeIds.Count, movedIds.Count, movedIds, notFoundIds);
     }
 
+    private async Task<HashSet<Guid>> ProtectedFileOwnersAsync(List<Guid> ids, CancellationToken ct)
+    {
+        var files = _db.FileRecords.Where(f => f.EncryptedFieldsJson != null).Select(f => f.Id);
+        var comments = _db.Comments.Where(c => ids.Contains(c.KnowledgeId)).Select(c => c.Id)
+            .Union(_db.ShSealedComments.Where(c => ids.Contains(c.KnowledgeId)).Select(c => c.Id));
+        var links = await _db.FileAttachments.Where(a => files.Contains(a.FileRecordId) &&
+            (a.KnowledgeId.HasValue && ids.Contains(a.KnowledgeId.Value) || a.CommentId.HasValue && comments.Contains(a.CommentId.Value)))
+            .Select(a => new { a.KnowledgeId, a.CommentId }).Concat(_db.ShSealedAttachments.Where(a => files.Contains(a.FileRecordId) &&
+            (a.KnowledgeId.HasValue && ids.Contains(a.KnowledgeId.Value) || a.CommentId.HasValue && comments.Contains(a.CommentId.Value)))
+            .Select(a => new { a.KnowledgeId, a.CommentId })).ToListAsync(ct);
+        var linkedComments = links.Where(a => a.CommentId.HasValue).Select(a => a.CommentId!.Value).ToList();
+        return links.Where(a => a.KnowledgeId.HasValue).Select(a => a.KnowledgeId!.Value)
+            .Concat(await _db.Comments.Where(c => linkedComments.Contains(c.Id)).Select(c => c.KnowledgeId).ToListAsync(ct))
+            .Concat(await _db.ShSealedComments.Where(c => linkedComments.Contains(c.Id)).Select(c => c.KnowledgeId).ToListAsync(ct)).ToHashSet();
+    }
+
     public async Task<KnowledgeItemResponse?> GetKnowledgeItemAsync(Guid id, CancellationToken ct)
     {
         var item = await _knowledgeRepo.FirstOrDefaultAsync(new KnowledgeByIdWithRelationsSpec(id), ct);
@@ -412,7 +442,7 @@ public class KnowledgeService
         if (item == null)
             return null;
 
-        return MapToResponse(item);
+        return MapToResponse(item) with { IsEncrypted = await _db.ShSealedKnowledge.AnyAsync(s => s.KnowledgeId == id, ct), HasEncryptedAttachments = (await ProtectedFileOwnersAsync([id], ct)).Contains(id) };
     }
 
     public async Task<DeleteResult?> DeleteKnowledgeAsync(Guid id, CancellationToken ct)
@@ -420,6 +450,8 @@ public class KnowledgeService
         var item = await _knowledgeRepo.GetByIdAsync(id, ct);
         if (item == null)
             return null;
+
+        await EnsurePlaintextMutableAsync(id, ct);
 
         await _knowledgeRepo.SoftDeleteAsync(item, ct);
         await _knowledgeRepo.SaveChangesAsync(ct);
@@ -442,6 +474,8 @@ public class KnowledgeService
         if (item == null)
             return null;
 
+        await EnsurePlaintextMutableAsync(id, ct);
+
         await ReindexAndEnrichAsync(item, ct, forceReset: true);
 
         _logger.LogInformation(
@@ -455,7 +489,9 @@ public class KnowledgeService
     {
         var items = await _knowledgeRepo.ListAsync(new KnowledgeByIdsSpec(ids), ct);
 
-        var responses = items.Select(MapToResponse).ToList();
+        var sealedIds = (await _db.ShSealedKnowledge.Where(s => ids.Contains(s.KnowledgeId)).Select(s => s.KnowledgeId).ToListAsync(ct)).ToHashSet();
+        var protectedFileOwners = await ProtectedFileOwnersAsync(ids, ct);
+        var responses = items.Select(item => MapToResponse(item) with { IsEncrypted = sealedIds.Contains(item.Id), HasEncryptedAttachments = protectedFileOwners.Contains(item.Id) }).ToList();
         return new BulkGetResponse(responses, ids.Count, responses.Count);
     }
 
@@ -518,7 +554,7 @@ public class KnowledgeService
                         .FirstOrDefault()
                     : null,
                 k.CreatedAt, k.UpdatedAt,
-                k.IsIndexed))
+                k.IsIndexed, _db.ShSealedKnowledge.Any(s => s.KnowledgeId == k.Id), k.PortableRecoveryState))
             .ToListAsync(ct);
 
         var totalPages = pageSize > 0 ? (int)Math.Ceiling((double)total / pageSize) : 0;
@@ -926,5 +962,6 @@ public class KnowledgeService
         item.Tags.Select(t => t.Name),
         item.KnowledgeVaults.Select(kv => new VaultRef(kv.Vault.Id, kv.Vault.Name, kv.IsPrimary)),
         item.CreatedAt, item.UpdatedAt,
-        item.IsIndexed, item.IndexedAt);
+        item.IsIndexed, item.IndexedAt, PortableRecoveryState: item.PortableRecoveryState,
+        HasEncryptedFields: !string.IsNullOrWhiteSpace(item.EncryptedFieldsJson));
 }

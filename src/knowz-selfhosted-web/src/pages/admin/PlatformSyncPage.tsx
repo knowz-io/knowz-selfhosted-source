@@ -3,27 +3,33 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Cloud, FileArchive } from 'lucide-react'
 import { api, ApiError } from '../../lib/api-client'
-import ConnectionCard from '../../components/platform-sync/ConnectionCard'
+import ConnectionList from '../../components/platform-sync/ConnectionList'
 import VaultLinksTable from '../../components/platform-sync/VaultLinksTable'
 import SyncHistoryTable from '../../components/platform-sync/SyncHistoryTable'
 import BrowsePlatformModal from '../../components/platform-sync/BrowsePlatformModal'
+import LinkVaultModal from '../../components/platform-sync/LinkVaultModal'
 import SurfaceCard from '../../components/ui/SurfaceCard'
+import type { PlatformConnectionDto } from '../../lib/types'
 
 const HISTORY_LIMITS = [25, 50, 100, 500] as const
 type HistoryLimit = (typeof HISTORY_LIMITS)[number]
 
 export default function PlatformSyncPage() {
   const [isBrowseOpen, setIsBrowseOpen] = useState(false)
+  const [isLinkOpen, setIsLinkOpen] = useState(false)
   const [historyLimit, setHistoryLimit] = useState<HistoryLimit>(50)
   const [historyLinkFilter, setHistoryLinkFilter] = useState<string>('')
 
-  const connectionQuery = useQuery({
-    queryKey: ['platform-sync', 'connection'],
-    queryFn: async () => {
+  // UI_SH_PeerDestination (ADR_G6, #1043): every stored connection, oldest first. The head
+  // of the list is the primary (the row the legacy /connection* routes address).
+  const connectionsQuery = useQuery({
+    queryKey: ['platform-sync', 'connections'],
+    queryFn: async (): Promise<PlatformConnectionDto[]> => {
       try {
-        return await api.getPlatformConnection()
+        return (await api.listPlatformConnections()) ?? []
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return null
+        // A backend predating the multi-connection routes answers 404 — treat as "none".
+        if (err instanceof ApiError && err.status === 404) return []
         throw err
       }
     },
@@ -55,6 +61,7 @@ export default function PlatformSyncPage() {
     },
   })
 
+  const connections = connectionsQuery.data ?? []
   const links = linksQuery.data ?? []
   const history = historyQuery.data ?? []
 
@@ -66,20 +73,24 @@ export default function PlatformSyncPage() {
           <h1 className="text-2xl font-bold">Destinations</h1>
           <p className="text-sm text-muted-foreground">
             Connect a destination, link vaults, then run Pull, Push, or Full when you
-            choose. Nothing syncs automatically.
+            choose. Nothing syncs automatically. Knowz Cloud is built in; any other peer
+            must be allowlisted by the operator of this instance.
           </p>
         </div>
       </div>
 
-      <ConnectionCard
-        connection={connectionQuery.data ?? null}
-        linkCount={links.length}
+      <ConnectionList
+        connections={connections}
+        links={links}
+        isLoading={connectionsQuery.isLoading}
       />
 
       <VaultLinksTable
         links={links}
+        connections={connections}
         isLoading={linksQuery.isLoading}
         onBrowsePlatform={() => setIsBrowseOpen(true)}
+        onLinkVault={() => setIsLinkOpen(true)}
       />
 
       <SyncHistoryTable
@@ -115,7 +126,19 @@ export default function PlatformSyncPage() {
       </SurfaceCard>
 
       {isBrowseOpen && (
-        <BrowsePlatformModal links={links} onClose={() => setIsBrowseOpen(false)} />
+        <BrowsePlatformModal
+          links={links}
+          connections={connections}
+          onClose={() => setIsBrowseOpen(false)}
+        />
+      )}
+
+      {isLinkOpen && (
+        <LinkVaultModal
+          connections={connections}
+          links={links}
+          onClose={() => setIsLinkOpen(false)}
+        />
       )}
     </div>
   )

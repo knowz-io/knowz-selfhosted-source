@@ -55,6 +55,9 @@ services:
       Database__AutoMigrate: "true"
       KNOWZ_AI_CONFIG_UPDATED_AT: "${KNOWZ_AI_CONFIG_UPDATED_AT:-}"
       KNOWZ_AI_DISABLED: "${KNOWZ_AI_DISABLED:-false}"
+      # Explicit per-request local AI consent; disabled unless the operator configures it.
+      PortableLocalAi__Enabled: "${PORTABLE_LOCAL_AI_ENABLED:-false}"
+      PortableLocalAi__AllowedAddresses__0: "${PORTABLE_LOCAL_AI_ADDRESS:-}"
       DataProtection__KeysPath: "/data/keys"
 
       # Required: Authentication — MUST be supplied via .env (no defaults).

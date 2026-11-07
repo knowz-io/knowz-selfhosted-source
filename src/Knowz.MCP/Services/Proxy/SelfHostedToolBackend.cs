@@ -55,11 +55,11 @@ public class SelfHostedToolBackend : IToolBackend
 
         ["create_knowledge"] = new(HttpMethod.Post, "/api/v1/knowledge", null, null,
             new Dictionary<string, string> { ["knowledgeType"] = "type" },
-            new[] { "content", "title", "knowledgeType", "vaultId", "tags", "source" }),
+            new[] { "content", "title", "knowledgeType", "vaultId", "tags", "source", "enrichment" }),
 
         ["update_knowledge"] = new(HttpMethod.Put, "/api/v1/knowledge/{id}",
             new[] { "id" }, null, null,
-            new[] { "content", "title", "tags", "source" }),
+            new[] { "content", "title", "tags", "source", "enrichment" }),
 
         ["create_vault"] = new(HttpMethod.Post, "/api/v1/vaults", null, null, null,
             new[] { "name", "description", "parentVaultId", "vaultType" }),
@@ -186,6 +186,21 @@ public class SelfHostedToolBackend : IToolBackend
                 error = $"{toolName} is not available in Knowz Self-Hosted.",
                 code = "unavailable_in_selfhosted",
                 tool = toolName
+            });
+        }
+
+        // The standalone API has a separate enrichment engine and cannot honor stage selection.
+        // Reject before saving rather than silently running the LLM work the caller disabled.
+        if (toolName is "create_knowledge" or "update_knowledge"
+            && arguments.TryGetValue("enrichment", out var enrichment)
+            && (enrichment is false || enrichment is JsonElement { ValueKind: JsonValueKind.False }))
+        {
+            return JsonSerializer.Serialize(new
+            {
+                error = "enrichment=false is unavailable in Knowz Self-Hosted. Use the platform proxy backend for retrieval-only ingest. No changes were saved.",
+                code = "unavailable_in_selfhosted",
+                tool = toolName,
+                parameter = "enrichment"
             });
         }
 

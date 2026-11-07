@@ -8,6 +8,7 @@ using Knowz.SelfHosted.Infrastructure.Data;
 using Knowz.SelfHosted.Infrastructure.Interfaces;
 using Knowz.SelfHosted.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -50,6 +51,20 @@ public static class ApplicationServiceExtensions
         // Portability services
         services.AddScoped<IPortableExportService, PortableExportService>();
         services.AddScoped<IPortableImportService, PortableImportService>();
+        services.AddScoped<SelfHostedSealedStore>();
+        services.AddScoped<SelfHostedSealedFiles>();
+        services.AddScoped<SelfHostedPortabilityStageReconciler>();
+        services.AddHostedService<SelfHostedPortabilityRecoveryWorker>();
+        services.AddScoped<PortableImportService>();
+        services.AddScoped<PortableExportService>();
+        services.AddScoped<SelfHostedGraphStore>();
+        services.AddScoped<SelfHostedArchiveExportService>();
+        services.AddSingleton<Knowz.Core.Portability.ArchiveImportCoordinator>();
+        services.AddScoped<SelfHostedArchiveImportAdapter>();
+        services.AddSingleton<SelfHostedPeerChallengeStore>();
+        services.AddScoped<SelfHostedArchivePeerService>();
+        services.AddScoped<SelfHostedArchivePeerTransport>();
+        services.AddScoped<SelfHostedRecoveredCustodyService>();
 
         // Vault sync services
         services.AddScoped<IVaultSyncOrchestrator, VaultSyncOrchestrator>();
@@ -60,7 +75,17 @@ public static class ApplicationServiceExtensions
         services.AddScoped<IPlatformAuditLog, PlatformAuditLogService>();
         // Per-tenant platform credential store (NodeID: PlatformSyncConnection).
         services.AddScoped<IPlatformConnectionService, PlatformConnectionService>();
-        services.AddSingleton<IUrlValidator, PlatformUrlValidator>();
+        // Operator-configured peer allowlist (Sync:AllowedPlatformHosts) — ADR_G6 (#1043).
+        // Tolerates a missing IConfiguration (wire-up tests) → Cloud-only defaults.
+        services.TryAddSingleton<IOptions<SyncOptions>>(sp =>
+        {
+            var options = new SyncOptions();
+            sp.GetService<IConfiguration>()?.GetSection(SyncOptions.SectionName).Bind(options);
+            return Microsoft.Extensions.Options.Options.Create(options);
+        });
+        services.AddSingleton<IUrlValidator>(sp => new PlatformUrlValidator(
+            sp.GetRequiredService<IHostEnvironment>(),
+            sp.GetRequiredService<IOptions<SyncOptions>>()));
         // Rate limiter is a singleton — sliding-window state must persist across requests
         // (V-SEC-09). NodeID PlatformSyncItemOps.
         services.AddSingleton<IPlatformSyncRateLimiter, PlatformSyncRateLimiter>();

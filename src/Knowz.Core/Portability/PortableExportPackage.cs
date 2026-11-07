@@ -72,6 +72,27 @@ public class PortableExportPackage
     /// Present only during incremental sync operations.
     /// </summary>
     public List<SyncTombstoneDto>? Tombstones { get; set; }
+
+    /// <summary>
+    /// Capabilities a reader must understand before writing this package.
+    /// Empty on plaintext schema v1–v2 packages.
+    /// </summary>
+    public List<string>? RequiredCapabilities { get; set; }
+
+    public List<ExportedCryptoContext>? CryptoContexts { get; set; }
+    public List<ExportedCryptoKeyIdentity>? CryptoKeyCatalog { get; set; }
+    public List<SealedKnowledgeItem>? SealedItems { get; set; }
+    public List<SealedKnowledgeVersionRecord>? SealedVersions { get; set; }
+    public List<SealedFileRecord>? SealedFiles { get; set; }
+    public List<SealedCommentRecord>? SealedComments { get; set; }
+    public List<PortableOmission>? Omissions { get; set; }
+    public List<ExportedVaultCryptoContextLink>? VaultCryptoContextLinks { get; set; }
+    public List<PortablePayloadKeyReference>? PayloadKeyReferences { get; set; }
+    public List<SealedAttachmentRecord>? SealedAttachments { get; set; }
+    public List<PortableSuspendedReleasePolicy>? SuspendedReleasePolicies { get; set; }
+    public List<PortableDependencyBoundKnowledge>? DependencyBoundItems { get; set; }
+    public string PreservationState { get; set; } = "complete";
+    public List<PortablePlainVersionRecord>? PlainVersions { get; set; }
 }
 
 public class PortableExportMetadata

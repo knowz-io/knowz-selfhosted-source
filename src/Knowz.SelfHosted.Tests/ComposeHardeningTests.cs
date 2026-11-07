@@ -151,9 +151,9 @@ public class ComposeHardeningTests
     private static string ReadCompose() =>
         File.ReadAllText(Path.Combine(RepoRoot(), "docker-compose.yml"));
 
-    private static string RepoRoot()
+    private static string RepoRoot([System.Runtime.CompilerServices.CallerFilePath] string sourcePath = "")
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        var dir = new DirectoryInfo(Path.GetDirectoryName(sourcePath) ?? AppContext.BaseDirectory);
         while (dir is not null)
         {
             if (File.Exists(Path.Combine(dir.FullName, "Knowz.SelfHosted.sln"))

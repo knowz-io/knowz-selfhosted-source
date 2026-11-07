@@ -20,6 +20,7 @@ namespace Knowz.SelfHosted.Tests;
 public class VaultSyncOrchestratorTests : IDisposable
 {
     private readonly SelfHostedDbContext _db;
+    private readonly ITenantProvider _tenantProvider;
     private readonly IPlatformSyncClient _platformClient;
     private readonly VaultSyncOrchestrator _orchestrator;
 
@@ -31,10 +32,13 @@ public class VaultSyncOrchestratorTests : IDisposable
     {
         var options = new DbContextOptionsBuilder<SelfHostedDbContext>()
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .ConfigureWarnings(w => w.Ignore(
+                Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
 
         var tenantProvider = Substitute.For<ITenantProvider>();
         tenantProvider.TenantId.Returns(TenantId);
+        _tenantProvider = tenantProvider;
         _db = new SelfHostedDbContext(options, tenantProvider);
 
         _platformClient = Substitute.For<IPlatformSyncClient>();
@@ -373,7 +377,158 @@ public class VaultSyncOrchestratorTests : IDisposable
         Assert.Equal(0, tombstones);
     }
 
+    // --- Partial-run honesty (G7 / #1044) ---
+    // Lane order is pull → push → files. Whenever a lane does not run, the run's Details
+    // must say so; a Partial flag alone does not tell the operator which lanes were skipped.
+
+    [Fact]
+    public async Task SyncAsync_FullPartialOnPull_ReportsPushSkippedAndFilesSkipped()
+    {
+        SeedLinkAndVault();
+        StubCompatibleSchema();
+        _platformClient.ExportDeltaAsync(
+                Arg.Any<VaultSyncLink>(), Arg.Any<DateTime?>(),
+                Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(MakeDeltaPackage(VaultSyncOrchestrator.BulkItemCap + 50));
+
+        var result = await _orchestrator.SyncAsync(LocalVaultId, SyncDirection.Full);
+
+        Assert.True(result.Success);
+        Assert.True(result.Partial);
+        Assert.Contains(VaultSyncOrchestrator.PushSkippedDetail, result.Details);
+        Assert.Contains(VaultSyncOrchestrator.FilesSkippedPartialDetail, result.Details);
+        // Push never ran, so the platform must not have received a push.
+        await _platformClient.DidNotReceive().ImportDeltaAsync(
+            Arg.Any<VaultSyncLink>(), Arg.Any<Knowz.Core.Portability.PortableExportPackage>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncAsync_FullPartialOnPush_ReportsFilesSkippedButNotPushSkipped()
+    {
+        SeedLinkAndVault();
+        StubCompatibleSchema();
+        // Nothing to pull, so the whole budget is available to push.
+        _platformClient.ExportDeltaAsync(
+                Arg.Any<VaultSyncLink>(), Arg.Any<DateTime?>(),
+                Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(MakeDeltaPackage(0));
+        _platformClient.ImportDeltaAsync(
+                Arg.Any<VaultSyncLink>(), Arg.Any<Knowz.Core.Portability.PortableExportPackage>(),
+                Arg.Any<CancellationToken>())
+            .Returns(ci => new PlatformImportResponse
+            {
+                Success = true,
+                Accepted = ci.Arg<Knowz.Core.Portability.PortableExportPackage>().Data.KnowledgeItems.Count,
+                ServerTimestamp = DateTime.UtcNow,
+            });
+        for (var i = 0; i < VaultSyncOrchestrator.BulkItemCap + 1; i++)
+            SeedLocalKnowledge(Guid.NewGuid(), DateTime.UtcNow.AddMinutes(-i));
+        var orchestrator = CreateOrchestratorWithRealExport();
+
+        var result = await orchestrator.SyncAsync(LocalVaultId, SyncDirection.Full);
+
+        Assert.True(result.Success);
+        Assert.True(result.Partial);
+        Assert.Equal(VaultSyncOrchestrator.BulkItemCap, result.PushAccepted);
+        Assert.DoesNotContain(VaultSyncOrchestrator.PushSkippedDetail, result.Details);
+        Assert.Contains(VaultSyncOrchestrator.FilesSkippedPartialDetail, result.Details);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PullOnly_ReportsFilesNotSyncedForDirection()
+    {
+        SeedLinkAndVault();
+        StubCompatibleSchema();
+        _platformClient.ExportDeltaAsync(
+                Arg.Any<VaultSyncLink>(), Arg.Any<DateTime?>(),
+                Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(MakeDeltaPackage(1));
+
+        var result = await _orchestrator.SyncAsync(LocalVaultId, SyncDirection.PullOnly);
+
+        Assert.True(result.Success);
+        Assert.False(result.Partial);
+        Assert.Contains(VaultSyncOrchestrator.FilesNotSyncedDirectionDetail, result.Details);
+        Assert.DoesNotContain(VaultSyncOrchestrator.FilesSkippedPartialDetail, result.Details);
+        Assert.DoesNotContain(VaultSyncOrchestrator.PushSkippedDetail, result.Details);
+    }
+
     // --- Helpers ---
+
+    private void SeedLinkAndVault()
+    {
+        _db.Vaults.Add(new Knowz.Core.Entities.Vault { Id = LocalVaultId, TenantId = TenantId, Name = "Local" });
+        _db.VaultSyncLinks.Add(CreateSyncLink());
+        _db.SaveChanges();
+    }
+
+    private void StubCompatibleSchema() =>
+        _platformClient.GetSchemaAsync(Arg.Any<VaultSyncLink>(), Arg.Any<CancellationToken>())
+            .Returns(new PlatformSchemaResponse
+            {
+                Version = CoreSchema.Version,
+                MinReadableVersion = CoreSchema.Version,
+            });
+
+    private VaultSyncOrchestrator CreateOrchestratorWithRealExport()
+    {
+        var exportService = new VaultScopedExportService(
+            _db, _tenantProvider, Substitute.For<ILogger<VaultScopedExportService>>());
+        return new VaultSyncOrchestrator(
+            _db, _tenantProvider, _platformClient,
+            exportService, fileSyncService: null!,
+            Substitute.For<ILogger<VaultSyncOrchestrator>>());
+    }
+
+    private void SeedLocalKnowledge(Guid id, DateTime updatedAt)
+    {
+        _db.KnowledgeItems.Add(new Knowz.Core.Entities.Knowledge
+        {
+            Id = id,
+            TenantId = TenantId,
+            Title = $"Local-{id:N}",
+            Content = "content",
+            CreatedAt = updatedAt.AddDays(-1),
+            UpdatedAt = updatedAt,
+        });
+        _db.KnowledgeVaults.Add(new Knowz.Core.Entities.KnowledgeVault
+        {
+            KnowledgeId = id,
+            VaultId = LocalVaultId,
+            IsPrimary = true,
+        });
+        _db.SaveChanges();
+    }
+
+    private static PortableExportPackage MakeDeltaPackage(int itemCount)
+    {
+        var t = DateTime.UtcNow;
+        var items = new List<PortableKnowledge>();
+        for (var i = 0; i < itemCount; i++)
+        {
+            items.Add(new PortableKnowledge
+            {
+                Id = Guid.NewGuid(),
+                Title = $"Remote-{i}",
+                Content = $"content-{i}",
+                CreatedAt = t.AddSeconds(i),
+                UpdatedAt = t.AddSeconds(i),
+            });
+        }
+        return new PortableExportPackage
+        {
+            SchemaVersion = CoreSchema.Version,
+            SourceEdition = "platform",
+            SourceTenantId = Guid.NewGuid(),
+            ExportedAt = t,
+            SyncCursor = t,
+            IsIncrementalSync = true,
+            Metadata = new PortableExportMetadata { TotalKnowledgeItems = itemCount },
+            Data = new PortableExportData { KnowledgeItems = items },
+            Tombstones = new List<SyncTombstoneDto>(),
+        };
+    }
 
     private static VaultSyncLink CreateSyncLink(Guid? vaultId = null) => new()
     {

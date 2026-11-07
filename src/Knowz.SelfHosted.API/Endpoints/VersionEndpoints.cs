@@ -107,7 +107,10 @@ public static class VersionEndpoints
             }
 
             var userId = VaultEndpoints.GetUserIdFromContext(context);
-            var restored = await versioningService.RestoreVersionAsync(knowledgeId, versionNumber, userId, ct);
+            bool restored;
+            try { restored = await versioningService.RestoreVersionAsync(knowledgeId, versionNumber, userId, ct); }
+            catch (InvalidOperationException ex) when (ex.Message == VersioningService.ProtectedHistoryRestoreMessage)
+            { return Results.Json(new { error = ex.Message }, statusCode: 409); }
 
             if (!restored)
                 return Results.NotFound(new { error = "Version not found" });

@@ -23,6 +23,7 @@ import { EncryptedEnvelope, decryptEnvelopeToBytes } from './vault-crypto'
 export const PORTABLE_MESSAGE_FORMAT = 'knowz-encrypted-message-v2'
 export const PORTABLE_MESSAGE_VERSION = 2
 export const PORTABLE_KEY_TYPE = 'x25519-vault-public'
+export const ITEM_KEY_TYPE = 'x25519-item-public'
 
 const PORTABLE_ALG = {
   kdf: 'hkdf-sha256',
@@ -39,7 +40,7 @@ export interface PortableEncryptedMessage {
   format: 'knowz-encrypted-message-v2'
   version: 2
   alg: { kdf: 'hkdf-sha256'; keyAgreement: 'x25519'; dekWrap: 'aes-256-gcm'; content: 'aes-256-gcm' }
-  binding: { vaultId: string; keyType: 'x25519-vault-public' }
+  binding: { vaultId: string; keyType: 'x25519-vault-public' | 'x25519-item-public'; itemId?: string }
   contentAadBound: boolean
   envelope: {
     ephemeralPublicKey: string
@@ -60,8 +61,20 @@ export interface PortableEncryptedMessage {
  * Build the canonical content-layer AAD. Byte-for-byte identical to C#
  * `IVaultCryptoService.BuildContentAad`. `vaultId` is used verbatim (lowercase hyphenated GUID string).
  */
-export function buildContentAad(vaultId: string, keyType: string, version: number): Uint8Array {
-  return new TextEncoder().encode(`knowz-msg-v2|${vaultId}|${keyType}|${version}`)
+export function buildContentAad(vaultId: string, keyType: string, version: number, itemId?: string): Uint8Array {
+  const base = `knowz-msg-v2|${vaultId}|${keyType}|${version}`
+  if (keyType === ITEM_KEY_TYPE) {
+    if (version !== 2 || !isItemId(itemId)) fail('invalid item binding')
+    return new TextEncoder().encode(`${base}|${itemId}`)
+  }
+  if (itemId !== undefined) fail('itemId requires item key type')
+  return new TextEncoder().encode(base)
+}
+
+function isItemId(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)
+    && value !== '00000000-0000-0000-0000-000000000000'
 }
 
 // ============================================================================
@@ -80,8 +93,10 @@ export function buildContentAad(vaultId: string, keyType: string, version: numbe
  */
 export function buildPortableMessage(
   env: EncryptedEnvelope,
-  opts: { vaultId: string; fingerprint: string; envelopeVersion: number; createdAt?: Date }
+  opts: { vaultId: string; fingerprint: string; envelopeVersion: number; createdAt?: Date; itemId?: string }
 ): PortableEncryptedMessage {
+  if (opts.envelopeVersion !== 1 && opts.envelopeVersion !== 2) fail('unsupported envelope version')
+  if (opts.itemId !== undefined && (opts.envelopeVersion !== 2 || !isItemId(opts.itemId))) fail('invalid item binding')
   const ciphertext = env.encryptedContent ?? env.ciphertext
   if (!ciphertext) {
     throw new Error('buildPortableMessage: envelope is missing ciphertext (encryptedContent/ciphertext)')
@@ -91,7 +106,9 @@ export function buildPortableMessage(
     format: PORTABLE_MESSAGE_FORMAT,
     version: PORTABLE_MESSAGE_VERSION,
     alg: { ...PORTABLE_ALG },
-    binding: { vaultId: opts.vaultId, keyType: PORTABLE_KEY_TYPE },
+    binding: opts.itemId === undefined
+      ? { vaultId: opts.vaultId, keyType: PORTABLE_KEY_TYPE }
+      : { vaultId: opts.vaultId, keyType: ITEM_KEY_TYPE, itemId: opts.itemId },
     contentAadBound: opts.envelopeVersion === 2,
     envelope: {
       ephemeralPublicKey: env.ephemeralPublicKey,
@@ -142,7 +159,10 @@ export function parsePortableMessage(text: string): PortableEncryptedMessage {
   if (obj.binding === null || typeof obj.binding !== 'object') fail('missing "binding"')
   const binding = obj.binding as Record<string, unknown>
   requireNonEmptyString(binding, 'vaultId')
-  if (binding.keyType !== PORTABLE_KEY_TYPE) fail(`unexpected binding.keyType "${String(binding.keyType)}"`)
+  if (binding.keyType !== PORTABLE_KEY_TYPE && binding.keyType !== ITEM_KEY_TYPE) fail('unexpected binding.keyType')
+  if (binding.keyType === ITEM_KEY_TYPE) {
+    if (!isItemId(binding.itemId) || obj.contentAadBound !== true) fail('invalid item binding')
+  } else if (binding.itemId !== undefined) fail('itemId requires item key type')
 
   if (typeof obj.contentAadBound !== 'boolean') fail('missing "contentAadBound"')
 
@@ -170,6 +190,9 @@ export async function decryptPortableMessage(
   privateKey: Uint8Array,
   msg: PortableEncryptedMessage
 ): Promise<string> {
+  // Enforce the same binding contract for direct callers that bypass JSON parsing.
+  if (msg.binding.keyType === ITEM_KEY_TYPE && msg.contentAadBound !== true) fail('item binding requires AAD')
+  if (msg.binding.keyType !== ITEM_KEY_TYPE && msg.binding.itemId !== undefined) fail('itemId requires item key type')
   const envelope: EncryptedEnvelope = {
     ephemeralPublicKey: msg.envelope.ephemeralPublicKey,
     encryptedDek: msg.envelope.encryptedDek,
@@ -179,7 +202,7 @@ export async function decryptPortableMessage(
   }
 
   const aad = msg.contentAadBound
-    ? buildContentAad(msg.binding.vaultId, msg.binding.keyType, msg.version)
+    ? buildContentAad(msg.binding.vaultId, msg.binding.keyType, msg.version, msg.binding.itemId)
     : undefined
 
   const bytes = await decryptEnvelopeToBytes(privateKey, envelope, aad)

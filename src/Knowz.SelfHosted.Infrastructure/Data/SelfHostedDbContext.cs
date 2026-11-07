@@ -6,17 +6,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Knowz.SelfHosted.Infrastructure.Data;
 
-public class SelfHostedDbContext : DbContext
+public partial class SelfHostedDbContext : DbContext
 {
     private readonly ITenantProvider? _tenantProvider;
+    private readonly IPortableActorProvider? _portableActor;
+    public Guid? PortableActorId => _portableActor?.ActorId;
     // API-key authentication resolves this context before assigning the principal.
     // Evaluate the existing trusted provider when a query runs, after authentication.
     private Guid _tenantId => _tenantProvider?.TenantId ?? Guid.Parse("00000000-0000-0000-0000-000000000001");
 
-    public SelfHostedDbContext(DbContextOptions<SelfHostedDbContext> options, ITenantProvider tenantProvider)
+    public SelfHostedDbContext(DbContextOptions<SelfHostedDbContext> options, ITenantProvider tenantProvider, IPortableActorProvider? portableActor = null)
         : base(options)
     {
-        _tenantProvider = tenantProvider;
+        _tenantProvider = tenantProvider; _portableActor = portableActor;
     }
 
     // For migrations (design-time factory) - internal so pooling sees only one public constructor
@@ -42,6 +44,10 @@ public class SelfHostedDbContext : DbContext
     // v2 entities
     public DbSet<VaultPerson> VaultPersons => Set<VaultPerson>();
     public DbSet<KnowledgeComment> Comments => Set<KnowledgeComment>();
+    public DbSet<ShCryptoContextImportAnchor> ShCryptoContextImportAnchors => Set<ShCryptoContextImportAnchor>();
+    public DbSet<ShCryptoCustodyChallenge> ShCryptoCustodyChallenges => Set<ShCryptoCustodyChallenge>();
+    public DbSet<ShRecoveredKeyCustodyAcceptance> ShRecoveredKeyCustodyAcceptances => Set<ShRecoveredKeyCustodyAcceptance>();
+    public DbSet<ShArchivePeerBinding> ShArchivePeerBindings => Set<ShArchivePeerBinding>();
     public DbSet<FileRecord> FileRecords => Set<FileRecord>();
     public DbSet<FileAttachment> FileAttachments => Set<FileAttachment>();
     public DbSet<PortableArchive> PortableArchives => Set<PortableArchive>();
@@ -91,10 +97,27 @@ public class SelfHostedDbContext : DbContext
     // System configuration (no query filter — admin-level, not tenant-scoped)
     public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
 
+    // Sealed vault store. Ciphertext stays on these rows. Query-filtered by tenant.
+    public DbSet<ShPortableCryptoContext> ShPortableCryptoContexts => Set<ShPortableCryptoContext>();
+    public DbSet<ShVaultCryptoContextLink> ShVaultCryptoContextLinks => Set<ShVaultCryptoContextLink>();
+    public DbSet<ShCryptoKeyIdentity> ShCryptoKeyIdentities => Set<ShCryptoKeyIdentity>();
+    public DbSet<ShSealedKnowledge> ShSealedKnowledge => Set<ShSealedKnowledge>();
+    public DbSet<ShSealedVersion> ShSealedVersions => Set<ShSealedVersion>();
+    public DbSet<ShSealedFileStage> ShSealedFileStages => Set<ShSealedFileStage>();
+    public DbSet<ShSealedFile> ShSealedFiles => Set<ShSealedFile>();
+    public DbSet<ShSealedComment> ShSealedComments => Set<ShSealedComment>();
+    public DbSet<ShSealedAttachment> ShSealedAttachments => Set<ShSealedAttachment>();
+    public DbSet<ShPayloadKeyReference> ShPayloadKeyReferences => Set<ShPayloadKeyReference>();
+    public DbSet<ShArchiveImportJournal> ShArchiveImportJournals => Set<ShArchiveImportJournal>();
+    public DbSet<ShArchiveSigningIdentity> ShArchiveSigningIdentities => Set<ShArchiveSigningIdentity>();
+    public DbSet<ShFileObjectReference> ShFileObjectReferences => Set<ShFileObjectReference>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Global query filters: TenantId + soft delete
-        modelBuilder.Entity<Knowledge>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
+        modelBuilder.Entity<Knowledge>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted && (e.PortableRecoveryState == null || PortableActorId != null && e.CreatedByUserId == PortableActorId));
+        modelBuilder.Entity<Knowledge>().Property(e => e.PortableRecoveryState).HasMaxLength(64);
+        modelBuilder.Entity<ShInactiveRecoveryRecord>(e => { e.HasKey(x => x.Id); e.HasQueryFilter(x => x.TenantId == _tenantId && PortableActorId != null && x.OwnerUserId == PortableActorId); e.Property(x => x.RecoveryState).HasMaxLength(64); e.Property(x => x.Revision).IsConcurrencyToken(); });
         modelBuilder.Entity<Vault>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
         modelBuilder.Entity<Topic>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
         modelBuilder.Entity<Tag>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
@@ -103,11 +126,54 @@ public class SelfHostedDbContext : DbContext
         modelBuilder.Entity<Event>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
         modelBuilder.Entity<InboxItem>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
         modelBuilder.Entity<KnowledgeComment>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
+        modelBuilder.Entity<ShCryptoContextImportAnchor>(entity => {
+            entity.HasKey(x => x.Id); entity.HasQueryFilter(x => x.TenantId == _tenantId);
+            entity.HasIndex(x => new { x.TenantId, x.PlanId, x.ContextId }).IsUnique();
+            entity.Property(x => x.ManifestSha256).HasMaxLength(64); entity.Property(x => x.MappingSha256).HasMaxLength(64);
+            entity.Property(x => x.PackageSha256).HasMaxLength(64); entity.Property(x => x.PlanSha256).HasMaxLength(64); entity.Property(x => x.SourceTrust).HasMaxLength(64);
+        });
+        modelBuilder.Entity<ShCryptoCustodyChallenge>(entity => {
+            entity.HasKey(x => x.Id); entity.HasQueryFilter(x => x.TenantId == _tenantId);
+            entity.HasIndex(x => new { x.TenantId, x.ActorId, x.ExpiresAt });
+            entity.Property(x => x.Status).HasMaxLength(32).IsConcurrencyToken(); entity.Property(x => x.Fingerprint).HasMaxLength(64);
+            entity.Property(x => x.KeyStateSha256).HasMaxLength(64); entity.Property(x => x.PlanSha256).HasMaxLength(64); entity.Property(x => x.ExpectedProofSha256).HasMaxLength(64);
+        });
+        modelBuilder.Entity<ShRecoveredKeyCustodyAcceptance>(entity => {
+            entity.HasKey(x => x.Id); entity.HasQueryFilter(x => x.TenantId == _tenantId);
+            entity.HasIndex(x => new { x.TenantId, x.ContextId, x.KeyId }).IsUnique();
+            entity.Property(x => x.Fingerprint).HasMaxLength(64); entity.Property(x => x.KeyStateSha256).HasMaxLength(64); entity.Property(x => x.SourceTrust).HasMaxLength(64);
+        });
+        modelBuilder.Entity<ShArchivePeerBinding>(entity => {
+            entity.Property(x => x.ParentBindingSha256).HasMaxLength(64);
+            entity.Property(x => x.RegistrationChallengeSha256).HasMaxLength(64); entity.Property(x => x.PendingRemoteChallengeJson).HasMaxLength(8192); entity.Property(x => x.PendingLocalSourceBaseUrl).HasMaxLength(2048);
+            entity.Property(x => x.RemoteBindingRevision).HasMaxLength(64); entity.Property(x => x.LocalSourceBaseUrl).HasMaxLength(2048);
+            entity.HasKey(x => x.Id); entity.HasQueryFilter(x => x.TenantId == _tenantId);
+            entity.Property(x => x.SourceBaseUrl).HasMaxLength(2048).IsRequired(); entity.Property(x => x.BindingSlotSha256).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.SignerFingerprint).HasMaxLength(64).IsRequired(); entity.Property(x => x.SignerPublicKey).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.CredentialIdentitySha256).HasMaxLength(64).IsRequired(); entity.Property(x => x.TrustProvenance).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.BindingRevision).HasMaxLength(64).IsRequired().IsConcurrencyToken();
+            entity.HasIndex(x => new { x.TenantId, x.BindingSlotSha256 }).IsUnique(); entity.HasIndex(x => new { x.TenantId, x.DestinationVaultId });
+        });
         modelBuilder.Entity<FileRecord>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
         modelBuilder.Entity<ContentChunk>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
         modelBuilder.Entity<KnowledgeVersion>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
         modelBuilder.Entity<AuditLog>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
         modelBuilder.Entity<KnowledgeRelationship>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
+        modelBuilder.Entity<ShPortableCryptoContext>().HasQueryFilter(e => e.TenantId == _tenantId);
+        modelBuilder.Entity<ShVaultCryptoContextLink>().HasQueryFilter(e => e.TenantId == _tenantId);
+        modelBuilder.Entity<ShCryptoKeyIdentity>().HasQueryFilter(e => e.TenantId == _tenantId);
+        modelBuilder.Entity<ShSealedKnowledge>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
+        modelBuilder.Entity<ShSealedVersion>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
+        modelBuilder.Entity<ShSealedFileStage>().HasQueryFilter(e => e.TenantId == _tenantId);
+        modelBuilder.Entity<ShSealedFile>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
+        modelBuilder.Entity<ShSealedComment>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
+        modelBuilder.Entity<ShSealedAttachment>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
+        modelBuilder.Entity<ShPayloadKeyReference>().HasQueryFilter(e => e.TenantId == _tenantId && !e.IsDeleted);
+        modelBuilder.Entity<ShArchiveImportJournal>().HasQueryFilter(e => e.TenantId == _tenantId);
+        modelBuilder.Entity<ShArchiveSigningIdentity>().HasQueryFilter(e => e.TenantId == _tenantId);
+        modelBuilder.Entity<ShFileObjectReference>().HasQueryFilter(e => e.TenantId == _tenantId);
+
+        ConfigureInactiveRecoveryFilters(modelBuilder);
 
         // Junction table composite keys
         modelBuilder.Entity<KnowledgeVault>().HasKey(kv => new { kv.KnowledgeId, kv.VaultId });
@@ -285,6 +351,7 @@ public class SelfHostedDbContext : DbContext
         // --- VaultSyncLink entity configuration (NO query filter — admin-level) ---
         modelBuilder.Entity<VaultSyncLink>(entity =>
         {
+            entity.Property(x => x.SecurityRevision).HasMaxLength(64).IsConcurrencyToken();
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.LocalVaultId).IsUnique();
             entity.HasIndex(e => e.PlatformConnectionId);
@@ -298,8 +365,12 @@ public class SelfHostedDbContext : DbContext
         // --- PlatformConnection entity configuration (NO query filter — admin-level) ---
         modelBuilder.Entity<PlatformConnection>(entity =>
         {
+            entity.Property(x => x.SecurityRevision).HasMaxLength(64).IsConcurrencyToken();
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.TenantId).IsUnique();
+            // ADR_G6 (#1043): one-of-many per tenant. URL is normalized (Trim + TrimEnd('/'))
+            // by PlatformConnectionService before write, so the composite key is meaningful.
+            entity.HasIndex(e => e.TenantId);
+            entity.HasIndex(e => new { e.TenantId, e.PlatformApiUrl }).IsUnique();
             entity.Property(e => e.PlatformApiUrl).IsRequired().HasMaxLength(500);
             entity.Property(e => e.ApiKeyProtected).IsRequired().HasMaxLength(4000);
             entity.Property(e => e.ApiKeyLast4).HasMaxLength(8);
@@ -456,6 +527,9 @@ public class SelfHostedDbContext : DbContext
         modelBuilder.Entity<KnowledgeComment>().HasIndex(c => c.TenantId);
         modelBuilder.Entity<KnowledgeComment>().HasIndex(c => new { c.TenantId, c.KnowledgeId });
         modelBuilder.Entity<FileRecord>().HasIndex(f => f.TenantId);
+        modelBuilder.Entity<FileRecord>().Property(f => f.UpdatedAt).IsConcurrencyToken();
+        modelBuilder.Entity<FileRecord>().Property(f => f.FileVersion).HasDefaultValue(1);
+        modelBuilder.Entity<FileRecord>().Property(f => f.IsCurrentVersion).HasDefaultValue(true);
         modelBuilder.Entity<FileAttachment>().HasIndex(fa => fa.TenantId);
         modelBuilder.Entity<FileAttachment>().HasIndex(fa => fa.FileRecordId);
         modelBuilder.Entity<KnowledgeRelationship>().HasIndex(r => r.TenantId);
@@ -549,6 +623,79 @@ public class SelfHostedDbContext : DbContext
             entity.Property(g => g.ErrorMessage).HasMaxLength(2000);
             // NODE-4: commit-history ingestion fields
             entity.Property(g => g.LastCommitHistorySyncSha).HasMaxLength(40);
+        });
+
+        modelBuilder.Entity<ShSealedAttachment>(entity => { entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.TenantId, x.FileRecordId }); });
+        modelBuilder.Entity<ShPayloadKeyReference>(entity => { entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.TenantId, x.OwnerKind, x.OwnerId, x.Role, x.FieldName }).IsUnique(); });
+        modelBuilder.Entity<ShArchiveImportJournal>(entity => { entity.HasKey(x => x.PlanId); entity.Property(x => x.ActorNamespace).HasMaxLength(512); entity.Property(x => x.PeerBindingSha256).HasMaxLength(64); entity.Property(x => x.Status).IsConcurrencyToken(); entity.Property(x => x.UpdatedAt).IsConcurrencyToken(); entity.HasIndex(x => new { x.TenantId, x.Status, x.UpdatedAt }); });
+        modelBuilder.Entity<ShSealedFileStage>(entity => { entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.TenantId, x.ActorId, x.IdempotencyKey }).IsUnique(); entity.Property(x => x.Status).IsConcurrencyToken(); });
+        modelBuilder.Entity<ShSealedKnowledge>().Property(x => x.UpdatedAt).IsConcurrencyToken();
+        modelBuilder.Entity<ShSealedComment>().Property(x => x.UpdatedAt).IsConcurrencyToken();
+        modelBuilder.Entity<ShSealedFile>().Property(x => x.UpdatedAt).IsConcurrencyToken();
+        modelBuilder.Entity<ShSealedFile>().Property(x => x.FileVersion).HasDefaultValue(1);
+        modelBuilder.Entity<ShSealedFile>().Property(x => x.IsCurrentVersion).HasDefaultValue(true);
+        modelBuilder.Entity<ShSealedAttachment>().Property(x => x.UpdatedAt).IsConcurrencyToken();
+        modelBuilder.Entity<ShArchiveSigningIdentity>(entity => { entity.HasKey(x => x.TenantId); });
+        modelBuilder.Entity<ShFileObjectReference>(entity => { entity.HasKey(x => x.FileRecordId); });
+        modelBuilder.Entity<ShPortableCryptoContext>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.HasIndex(c => new { c.TenantId, c.OriginalBindingId });
+            entity.Property(c => c.BindingKind).IsRequired().HasMaxLength(32);
+            entity.Property(c => c.AlgorithmProfile).IsRequired().HasMaxLength(64);
+            entity.Property(c => c.ProvenanceStatus).IsRequired().HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<ShVaultCryptoContextLink>(entity =>
+        {
+            entity.HasKey(l => l.Id);
+            entity.HasIndex(l => new { l.TenantId, l.DestinationVaultId, l.PortableCryptoContextId }).IsUnique();
+        });
+
+        modelBuilder.Entity<ShCryptoKeyIdentity>(entity =>
+        {
+            entity.HasKey(k => k.Id);
+            entity.HasIndex(k => new { k.TenantId, k.PortableCryptoContextId, k.Fingerprint, k.Generation }).IsUnique();
+            entity.Property(k => k.Fingerprint).IsRequired().HasMaxLength(128);
+            entity.Property(k => k.PublicKey).IsRequired();
+            entity.Property(k => k.KeyType).IsRequired().HasMaxLength(32);
+            entity.Property(k => k.Lifecycle).IsRequired().HasMaxLength(32);
+            entity.Property(k => k.Custody).IsRequired().HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<ShSealedKnowledge>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.HasIndex(s => new { s.TenantId, s.KnowledgeId }).IsUnique();
+            entity.HasIndex(s => new { s.TenantId, s.OriginalItemId, s.LineageScope });
+            entity.Property(s => s.Ciphertext).IsRequired();
+            entity.Property(s => s.AlgorithmProfile).IsRequired().HasMaxLength(64);
+            entity.Property(s => s.LifecycleStatus).IsRequired().HasMaxLength(32);
+            entity.Property(s => s.VerifiedFingerprint).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<ShSealedVersion>(entity =>
+        {
+            entity.HasKey(v => v.Id);
+            entity.HasIndex(v => new { v.TenantId, v.KnowledgeId, v.VersionNumber }).IsUnique();
+            entity.Property(v => v.Ciphertext).IsRequired();
+            entity.Property(v => v.EnvelopeMetadata).IsRequired();
+        });
+
+        modelBuilder.Entity<ShSealedFile>(entity =>
+        {
+            entity.HasKey(f => f.Id);
+            entity.HasIndex(f => new { f.TenantId, f.KnowledgeId });
+            entity.Property(f => f.ContentType).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<ShSealedComment>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.HasIndex(c => new { c.TenantId, c.KnowledgeId });
+            entity.HasIndex(c => new { c.TenantId, c.OriginalCommentId, c.LineageScope });
+            entity.Property(c => c.Ciphertext).IsRequired();
+            entity.Property(c => c.AlgorithmProfile).IsRequired().HasMaxLength(64);
         });
     }
 }
