@@ -6,6 +6,7 @@ import { ArrowLeft, BookOpen, Pencil, Trash2, X, GitBranch, RefreshCw, Loader2, 
 import { useFormatters } from '../hooks/useFormatters'
 import PageHeader from '../components/ui/PageHeader'
 import SurfaceCard from '../components/ui/SurfaceCard'
+import { AccountArchivePanel } from '../components/portability/AccountArchivePanel'
 
 export default function VaultDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -251,6 +252,8 @@ export default function VaultDetailPage() {
 
       {/* Git Sync Section */}
       <GitSyncPanel vaultId={id!} />
+
+      <AccountArchivePanel vaultId={id!} />
 
       <SurfaceCard className="p-5">
         <div className="mb-4 flex items-center justify-between gap-3">

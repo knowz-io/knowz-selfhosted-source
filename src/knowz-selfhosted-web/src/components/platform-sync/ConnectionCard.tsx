@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { toUserError } from '../../lib/toUserError'
+import { isSafeDetail, toUserError } from '../../lib/toUserError'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Cloud,
@@ -13,27 +13,54 @@ import {
   X,
   Edit3,
   Shield,
+  Server,
+  Star,
 } from 'lucide-react'
 import { api, ApiError } from '../../lib/api-client'
 import { useFormatters } from '../../hooks/useFormatters'
+import { describeDestination, type DestinationDescriptor } from '../../lib/destinations'
 import type {
   PlatformConnectionDto,
   PlatformConnectionTestResult,
   PlatformConnectionTestStatus,
+  UpsertPlatformConnectionRequest,
 } from '../../lib/types'
+
+/**
+ * One stored connection (UI_SH_PeerDestination, ADR_G6 #1043).
+ *
+ * `variant="primary"` (default) is the tenant's earliest-created connection and keeps using the
+ * legacy singleton routes (`GET/PUT/DELETE /api/v1/sync/connection`, `/connection/test`) — the
+ * server guarantees those address exactly that row, so the Cloud path is unchanged.
+ *
+ * `variant="peer"` uses the additive `/api/v1/sync/connections/{id}` routes. With a null
+ * `connection` it is the add-peer form (`POST /api/v1/sync/connections`).
+ *
+ * Live peer smoke (Portable↔SH / SH↔SH) is still open under #1043; this card only makes the
+ * already-shipped backend reachable from the UI.
+ */
+export type ConnectionCardVariant = 'primary' | 'peer'
 
 interface ConnectionCardProps {
   connection: PlatformConnectionDto | null
   linkCount: number
+  variant?: ConnectionCardVariant
+  /** Show the Primary badge (the row the legacy routes and default pickers address). */
+  isPrimary?: boolean
+  /** Add-peer form only: called after a successful create. */
+  onCreated?: () => void
+  /** Add-peer form only: renders a Cancel button that calls this. */
+  onCancel?: () => void
 }
 
 type BannerKind = 'success' | 'error' | 'warning' | 'info'
 
-/**
- * Live-connect spec S8 — an Unauthorized result is almost always a tenant (`kz_`)
- * key or a revoked key, so say that at the point the operator sees it.
- */
-const UNAUTHORIZED_HINT = ' Check that the key is a personal ukz_ key and still active.'
+/** An Unauthorized result can affect any supported destination credential. */
+const UNAUTHORIZED_HINT = ' Check that the key is still active and issued by this destination.'
+
+/** A 400 whose sentence names the allowlist gets the one action the operator can take. */
+const ALLOWLIST_HINT =
+  ' Ask the operator of this instance to add the host to Sync:AllowedPlatformHosts.'
 
 function withKeyHint(message: string, status: PlatformConnectionTestStatus): string {
   return status === 'Unauthorized' ? `${message}${UNAUTHORIZED_HINT}` : message
@@ -44,10 +71,19 @@ interface Banner {
   message: string
 }
 
-export default function ConnectionCard({ connection, linkCount }: ConnectionCardProps) {
+export default function ConnectionCard({
+  connection,
+  linkCount,
+  variant = 'primary',
+  isPrimary = false,
+  onCreated,
+  onCancel,
+}: ConnectionCardProps) {
   const queryClient = useQueryClient()
   const fmt = useFormatters()
   const isConnected = !!connection && connection.hasApiKey
+  const isPeerVariant = variant === 'peer'
+  const connectionId = connection?.id ?? null
   const [isEditing, setIsEditing] = useState(!isConnected)
   const [url, setUrl] = useState(connection?.platformApiUrl ?? '')
   const [displayName, setDisplayName] = useState(connection?.displayName ?? '')
@@ -72,6 +108,23 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
     }
   }, [isConnected, connection])
 
+  const destination: DestinationDescriptor = describeDestination(connection)
+  // Copy follows the destination kind: an existing peer row edits with peer guidance even
+  // when it happens to be the primary (the Cloud row was removed first).
+  const peerCopy = isPeerVariant || (!!connection && destination.kind === 'peer')
+
+  const heading = connection
+    ? destination.label
+    : isPeerVariant
+      ? 'Add an allowlisted peer'
+      : 'Connect to Knowz Cloud'
+
+  const invalidateConnections = () => {
+    queryClient.invalidateQueries({ queryKey: ['platform-sync', 'connection'] })
+    queryClient.invalidateQueries({ queryKey: ['platform-sync', 'connections'] })
+    queryClient.invalidateQueries({ queryKey: ['platform-sync', 'history'] })
+  }
+
   const resetForm = () => {
     setUrl(connection?.platformApiUrl ?? '')
     setDisplayName(connection?.displayName ?? '')
@@ -84,6 +137,23 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
     if (err instanceof ApiError) return toUserError(err)
     if (err instanceof Error) return toUserError(err)
     return 'Request failed'
+  }
+
+  /**
+   * A 400 from the connection routes carries the validator's own sentence (allowlist,
+   * https-only, private address, duplicate URL). The generic status mapper would replace it
+   * with "That request wasn't valid", which hides the one fact the operator needs.
+   */
+  const describeSaveFailure = (err: unknown): string => {
+    if (
+      err instanceof ApiError &&
+      err.status === 400 &&
+      isSafeDetail(err.message) &&
+      !/^Request failed/i.test(err.message)
+    ) {
+      return /allowlist/i.test(err.message) ? `${err.message}${ALLOWLIST_HINT}` : err.message
+    }
+    return handleError(err)
   }
 
   const testCandidateMutation = useMutation({
@@ -109,28 +179,36 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
   })
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      api.upsertPlatformConnection({
+    mutationFn: () => {
+      const body: UpsertPlatformConnectionRequest = {
         platformApiUrl: url.trim(),
         displayName: displayName.trim() || null,
         apiKey: apiKey || null,
-      }),
+      }
+      if (!isPeerVariant) return api.upsertPlatformConnection(body)
+      if (connectionId) return api.updatePlatformConnection(connectionId, body)
+      return api.createPlatformConnection(body)
+    },
     onSuccess: () => {
+      const created = isPeerVariant && !connectionId
       // V-SEC-04: clear plaintext API key immediately after successful save.
       setApiKey('')
       setCandidateTestResult(null)
-      setBanner({ kind: 'success', message: 'Connection saved.' })
+      setBanner({ kind: 'success', message: created ? 'Peer added.' : 'Connection saved.' })
       setIsEditing(false)
-      queryClient.invalidateQueries({ queryKey: ['platform-sync', 'connection'] })
-      queryClient.invalidateQueries({ queryKey: ['platform-sync', 'history'] })
+      invalidateConnections()
+      if (created) onCreated?.()
     },
     onError: (err) => {
-      setBanner({ kind: 'error', message: handleError(err) })
+      setBanner({ kind: 'error', message: describeSaveFailure(err) })
     },
   })
 
   const testExistingMutation = useMutation({
-    mutationFn: () => api.testPlatformConnection(),
+    mutationFn: () =>
+      isPeerVariant && connectionId
+        ? api.testPlatformConnectionById(connectionId)
+        : api.testPlatformConnection(),
     onSuccess: (result) => {
       if (result.status === 'Ok') {
         setBanner({ kind: 'success', message: result.message || 'Connection is healthy.' })
@@ -143,8 +221,7 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
           ),
         })
       }
-      queryClient.invalidateQueries({ queryKey: ['platform-sync', 'connection'] })
-      queryClient.invalidateQueries({ queryKey: ['platform-sync', 'history'] })
+      invalidateConnections()
     },
     onError: (err) => {
       setBanner({ kind: 'error', message: handleError(err) })
@@ -152,16 +229,18 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
   })
 
   const disconnectMutation = useMutation({
-    mutationFn: () => api.deletePlatformConnection(),
+    mutationFn: () =>
+      isPeerVariant && connectionId
+        ? api.deletePlatformConnectionById(connectionId)
+        : api.deletePlatformConnection(),
     onSuccess: () => {
-      setBanner({ kind: 'success', message: 'Knowz Cloud connection removed.' })
+      setBanner({ kind: 'success', message: `${destination.label} connection removed.` })
       setShowDisconnectConfirm(false)
       setIsEditing(true)
       setUrl('')
       setDisplayName('')
       setApiKey('')
-      queryClient.invalidateQueries({ queryKey: ['platform-sync', 'connection'] })
-      queryClient.invalidateQueries({ queryKey: ['platform-sync', 'history'] })
+      invalidateConnections()
     },
     onError: (err) => {
       const message = handleError(err)
@@ -188,11 +267,42 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
     !url.trim() ||
     (!isConnected && !apiKey.trim())
 
+  const showCancel = isConnected || !!onCancel
+  const handleCancel = () => {
+    resetForm()
+    if (isConnected) setIsEditing(false)
+    else onCancel?.()
+  }
+
+  const KindIcon = destination.kind === 'peer' || (isPeerVariant && !connection) ? Server : Cloud
+  const urlLabel = peerCopy ? 'Peer URL' : 'Knowz Cloud URL'
+
   return (
-    <div data-testid="platform-connection-card" className="bg-card border border-border/60 rounded-xl shadow-sm overflow-hidden">
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-border/60 bg-muted/30">
-        <Cloud size={20} className="text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Connection</h2>
+    <div
+      data-testid={isPeerVariant ? 'peer-connection-card' : 'platform-connection-card'}
+      className="bg-card border border-border/60 rounded-xl shadow-sm overflow-hidden"
+    >
+      <div className="flex flex-wrap items-center gap-2 px-5 py-4 border-b border-border/60 bg-muted/30">
+        <KindIcon size={20} className="text-muted-foreground" />
+        <h2 className="text-lg font-semibold">{heading}</h2>
+        {connection && (
+          <span
+            data-testid="destination-kind"
+            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground"
+          >
+            {destination.kindLabel}
+          </span>
+        )}
+        {isPrimary && connection && (
+          <span
+            data-testid="primary-badge"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary"
+            title="Default destination for new vault links and the connection the legacy routes address."
+          >
+            <Star size={11} />
+            Primary
+          </span>
+        )}
         <div className="ml-auto">
           <ConnectionStatusPill status={connection?.lastTestStatus ?? 'Untested'} connected={isConnected} />
         </div>
@@ -203,8 +313,7 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
 
         {!isEditing && connection && (
           <div className="space-y-3">
-            <FieldRow label="Knowz Cloud URL" value={connection.platformApiUrl} mono />
-            {connection.displayName && <FieldRow label="Display Name" value={connection.displayName} />}
+            <FieldRow label={urlLabel} value={connection.platformApiUrl} mono />
             <FieldRow
               label="API Key"
               value={connection.apiKeyMask ?? 'No API key set'}
@@ -266,24 +375,35 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">
-                Knowz Cloud URL <span className="text-red-500">*</span>
+                {urlLabel} <span className="text-red-500">*</span>
               </label>
               <input
                 data-testid="platform-connection-url"
                 type="url"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://api.knowz.io"
+                placeholder={peerCopy ? 'https://knowz.example.com' : 'https://api.knowz.io'}
                 autoComplete="off"
                 className="w-full px-3 py-2 border border-input rounded-md bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              <p
-                data-testid="cloud-url-guidance"
-                className="mt-1 text-xs text-muted-foreground"
-              >
-                Knowz Cloud only: https://api.knowz.io (or https://api.dev.knowz.io). Other
-                hosts are not allowed on this edition.
-              </p>
+              {peerCopy ? (
+                <p
+                  data-testid="peer-url-guidance"
+                  className="mt-1 text-xs text-muted-foreground"
+                >
+                  Another Knowz instance (self-hosted or portable), using HTTPS by default. Its
+                  host must be in this instance&apos;s Sync:AllowedPlatformHosts allowlist.
+                  Private and LAN peers require explicit operator opt-in, including local test instances.
+                </p>
+              ) : (
+                <p
+                  data-testid="cloud-url-guidance"
+                  className="mt-1 text-xs text-muted-foreground"
+                >
+                  Knowz Cloud: https://api.knowz.io (or https://api.dev.knowz.io). Other hosts
+                  are not allowed here — add them as allowlisted peers instead.
+                </p>
+              )}
             </div>
 
             <div>
@@ -294,7 +414,7 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="e.g. Production Knowz"
+                placeholder={peerCopy ? 'e.g. Office instance' : 'e.g. Production Knowz'}
                 autoComplete="off"
                 className="w-full px-3 py-2 border border-input rounded-md bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
@@ -315,15 +435,17 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
                 autoComplete="off"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="ukz_..."
+                placeholder={peerCopy ? 'ukz_... or kz_... (ksh_... for Self-Hosted peers)' : 'ukz_... or kz_...'}
                 className="w-full px-3 py-2 border border-input rounded-md bg-card text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <p
                 data-testid="api-key-guidance"
                 className="mt-1 text-xs text-muted-foreground"
               >
-                Use a personal API key (starts with ukz_). Tenant keys (kz_) are rejected
-                because sync needs a user identity.
+                Use a key issued by the destination. A personal ukz_ key acts as that user;
+                a tenant kz_ key acts as the whole tenant with tenant-admin/service access
+                and a higher blast radius.
+                {peerCopy && ' Use a ksh_ key where required by a Self-Hosted peer.'}
               </p>
               <p className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
                 <Shield size={11} />
@@ -367,14 +489,11 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
                 ) : (
                   <Save size={14} />
                 )}
-                Save
+                {isPeerVariant && !connectionId ? 'Add peer' : 'Save'}
               </button>
-              {isConnected && (
+              {showCancel && (
                 <button
-                  onClick={() => {
-                    resetForm()
-                    setIsEditing(false)
-                  }}
+                  onClick={handleCancel}
                   disabled={saveMutation.isPending}
                   className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
@@ -388,6 +507,8 @@ export default function ConnectionCard({ connection, linkCount }: ConnectionCard
 
       {showDisconnectConfirm && (
         <DisconnectConfirmModal
+          destinationLabel={destination.label}
+          isPeer={peerCopy}
           linkCount={linkCount}
           isPending={disconnectMutation.isPending}
           onCancel={() => setShowDisconnectConfirm(false)}
@@ -493,11 +614,15 @@ function BannerBox({ banner, onDismiss }: { banner: Banner; onDismiss: () => voi
 }
 
 function DisconnectConfirmModal({
+  destinationLabel,
+  isPeer,
   linkCount,
   isPending,
   onCancel,
   onConfirm,
 }: {
+  destinationLabel: string
+  isPeer: boolean
   linkCount: number
   isPending: boolean
   onCancel: () => void
@@ -511,11 +636,13 @@ function DisconnectConfirmModal({
           <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-50 dark:bg-red-950/40">
             <AlertTriangle size={20} className="text-red-600 dark:text-red-400" />
           </div>
-          <h3 className="text-lg font-semibold">Disconnect Platform?</h3>
+          <h3 className="text-lg font-semibold">
+            {isPeer ? 'Remove peer connection?' : 'Disconnect Platform?'}
+          </h3>
         </div>
         <p className="text-sm text-muted-foreground mb-2">
-          This will remove the stored Knowz Cloud connection. Future syncs will fail until
-          a new connection is configured.
+          This will remove the stored {destinationLabel} connection. Future runs to it will
+          fail until a new connection is configured.
         </p>
         {linkCount > 0 && (
           <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">
@@ -537,7 +664,7 @@ function DisconnectConfirmModal({
             className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50"
           >
             {isPending && <Loader2 size={14} className="animate-spin" />}
-            Disconnect
+            {isPeer ? 'Remove' : 'Disconnect'}
           </button>
         </div>
       </div>

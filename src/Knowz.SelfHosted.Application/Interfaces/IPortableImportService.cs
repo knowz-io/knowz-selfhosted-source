@@ -16,6 +16,12 @@ public interface IPortableImportService
     Task<PortableImportResult> ImportZipAsync(ZipArchive archive,
         ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default);
 
+    Task<PortableImportResult> ImportZipAsync(ZipArchive archive, Guid targetVaultId,
+        ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default);
+
+    Task<PortableImportResult> ImportAsync(PortableExportPackage package, Guid targetVaultId,
+        ImportConflictStrategy strategy = ImportConflictStrategy.Skip, CancellationToken ct = default);
+
     /// <summary>
     /// Import a portable package into the self-hosted database.
     /// </summary>

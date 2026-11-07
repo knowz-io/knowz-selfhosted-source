@@ -15,17 +15,17 @@ Node-free installers and checksums are available through [Knowz CLI releases](ht
 Run the exact preview version:
 
 ```bash
-npx @knowzai/cli@0.5.0 up
+npx @knowzai/cli@0.5.6 up
 ```
 
 Or install it once:
 
 ```bash
-npm i -g @knowzai/cli@0.5.0
+npm i -g @knowzai/cli@0.5.6
 knowz up
 ```
 
-The browser guides you through the AI provider, services, administrator account and Review. Selfhosted is the default edition and needs no license or GitHub login. Choose no AI provider to begin with local capture and keyword search; add a provider later when you need AI answers.
+The browser guides you through the AI provider, services, administrator account and Review. Pick Knowz Self-Hosted on the first step (or run `knowz up --edition selfhosted`); it needs no license or GitHub login. Choose no AI provider to begin with local capture and keyword search; add a provider later when you need AI answers.
 
 Setup pulls `ghcr.io/knowz-io/knowz-selfhosted-api`, `knowz-selfhosted-web`, and `knowz-selfhosted-mcp` at the selected complete release's digests. Its private runtime directory is `~/.knowz/selfhosted/knowz/` by default, or `~/.knowz/selfhosted/<name>/` with `--name`. `KNOWZ_CONFIG_DIR` can relocate that root.
 
@@ -171,7 +171,7 @@ Log in at [http://localhost:3000](http://localhost:3000) with `ADMIN_USERNAME` /
 
 ### CLI install
 
-If `npx @knowzai/cli@0.5.0 up` or `knowz up` fails, confirm Docker is running and Node is 22+ for the npm install. Use `knowz runtime doctor --edition selfhosted` and the reported setup error. Remap occupied ports with `--api-port`, `--web-port`, and `--mcp-port`; use `--name` to identify a separate installation. The CLI reports the bound service URLs.
+If `npx @knowzai/cli@0.5.6 up` or `knowz up` fails, confirm Docker is running and Node is 22+ for the npm install. Use `knowz runtime doctor --edition selfhosted` and the reported setup error. Remap occupied ports with `--api-port`, `--web-port`, and `--mcp-port`; use `--name` to identify a separate installation. The CLI reports the bound service URLs.
 
 ### Port Conflicts
 

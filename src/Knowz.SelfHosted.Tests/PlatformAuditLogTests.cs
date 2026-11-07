@@ -132,19 +132,24 @@ public class PlatformAuditLogTests : IDisposable
 
     // --- FailAsync + sanitization ---
 
-    [Fact]
-    public async Task FailAsync_RedactsApiKeyFromErrorMessage()
+    [Theory]
+    [InlineData("ukz_")]
+    [InlineData("kz_")]
+    [InlineData("ksh_")]
+    public async Task FailAsync_RedactsApiKeyFromErrorMessage(string prefix)
     {
         var runId = await _service.StartAsync(new PlatformSyncRunStart(
             Guid.Empty, null, PlatformSyncOperation.PullVault, PlatformSyncDirection.Pull));
 
-        var raw = "Request failed: Authorization: X-Api-Key: ukz_abcdefghijklmnopqrstuvwxyz";
+        var apiKey = prefix + "abcdefghijklmnopqrstuvwxyz";
+        // No header marker: every supported prefix must be independently recognized.
+        var raw = "Request failed using " + apiKey;
         await _service.FailAsync(runId, raw);
 
         var row = await _db.PlatformSyncRuns.AsNoTracking().FirstAsync(r => r.Id == runId);
         Assert.Equal(PlatformSyncRunStatus.Failed, row.Status);
         Assert.NotNull(row.ErrorMessage);
-        Assert.DoesNotContain("ukz_abcdefghijklmnopqrstuvwxyz", row.ErrorMessage);
+        Assert.DoesNotContain(apiKey, row.ErrorMessage);
         Assert.Contains("redacted", row.ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
 

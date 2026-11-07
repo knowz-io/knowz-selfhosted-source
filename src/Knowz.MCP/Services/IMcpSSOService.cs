@@ -47,4 +47,5 @@ public class McpSSOCallbackResult
     public string? RequestId { get; set; }
     public string? ApiKey { get; set; }
     public string? Email { get; set; }
+    public string? UserId { get; set; }
 }

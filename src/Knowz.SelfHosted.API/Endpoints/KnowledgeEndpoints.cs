@@ -8,6 +8,7 @@ using Knowz.SelfHosted.Application.Services;
 using Knowz.SelfHosted.Infrastructure.Data;
 using Knowz.SelfHosted.Infrastructure.Data.Entities;
 using Knowz.SelfHosted.Infrastructure.Interfaces;
+using Knowz.SelfHosted.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Knowz.SelfHosted.API.Endpoints;
@@ -174,13 +175,20 @@ public static class KnowledgeEndpoints
                     return Results.Json(new { error = "Access denied: no write permission to destination vault" }, statusCode: StatusCodes.Status403Forbidden);
             }
 
-            var result = await svc.UpdateKnowledgeAsync(
-                id, req.Title, req.Content, req.Source, req.Tags, req.VaultId, ct,
-                summaryRefinementGuidance: req.SummaryRefinementGuidance);
-            return result is null
-                ? Results.NotFound(new { error = "Knowledge item not found" })
-                : Results.Ok(result);
-        }).Produces<UpdateKnowledgeResult>().Produces(404).Produces(400);
+            try
+            {
+                var result = await svc.UpdateKnowledgeAsync(
+                    id, req.Title, req.Content, req.Source, req.Tags, req.VaultId, ct,
+                    summaryRefinementGuidance: req.SummaryRefinementGuidance);
+                return result is null
+                    ? Results.NotFound(new { error = "Knowledge item not found" })
+                    : Results.Ok(result);
+            }
+            catch (SealedItemLockedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
+        }).Produces<UpdateKnowledgeResult>().Produces(404).Produces(400).Produces(409);
 
         group.MapPost("/{id:guid}/amend", async (
             KnowledgeService svc,
@@ -193,6 +201,9 @@ public static class KnowledgeEndpoints
         {
             if (string.IsNullOrWhiteSpace(req.Instruction))
                 return Results.BadRequest(new { error = "instruction is required" });
+
+            if (await svc.IsSealedAsync(id, ct))
+                return Results.Json(new { error = new SealedItemLockedException().Message }, statusCode: StatusCodes.Status409Conflict);
 
             // Check write access to this knowledge item's vaults
             var vaultIds = await svc.GetKnowledgeVaultIdsAsync(id, ct);
@@ -227,11 +238,15 @@ public static class KnowledgeEndpoints
                     ? Results.NotFound(new { error = "Knowledge item not found" })
                     : Results.Ok(new { status = "amended", id = result.Id, title = result.Title });
             }
+            catch (SealedItemLockedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
             catch (InvalidOperationException ex) when (ex.Message.Contains("not configured"))
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
-        }).Produces<object>().Produces(400).Produces(404);
+        }).Produces<object>().Produces(400).Produces(404).Produces(409);
 
         group.MapDelete("/{id:guid}", async (
             KnowledgeService svc,
@@ -257,11 +272,18 @@ public static class KnowledgeEndpoints
                     return Results.Json(new { error = "Access denied. Delete permission required." }, statusCode: 403);
             }
 
-            var result = await svc.DeleteKnowledgeAsync(id, ct);
-            return result is null
-                ? Results.NotFound(new { error = "Knowledge item not found" })
-                : Results.Ok(result);
-        }).Produces<DeleteResult>().Produces(404);
+            try
+            {
+                var result = await svc.DeleteKnowledgeAsync(id, ct);
+                return result is null
+                    ? Results.NotFound(new { error = "Knowledge item not found" })
+                    : Results.Ok(result);
+            }
+            catch (SealedItemLockedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
+        }).Produces<DeleteResult>().Produces(404).Produces(409);
 
         // Fix F: Re-add batch-move endpoint with vault access enforcement
         group.MapPost("/batch-move", async (
@@ -309,9 +331,16 @@ public static class KnowledgeEndpoints
                 }
             }
 
-            var result = await svc.BatchMoveToVaultAsync(req.KnowledgeIds, req.TargetVaultId, ct);
-            return Results.Ok(result);
-        }).Produces<BatchMoveResult>().Produces(400);
+            try
+            {
+                var result = await svc.BatchMoveToVaultAsync(req.KnowledgeIds, req.TargetVaultId, ct);
+                return Results.Ok(result);
+            }
+            catch (SealedItemLockedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
+        }).Produces<BatchMoveResult>().Produces(400).Produces(409);
 
         group.MapPost("/{id:guid}/reprocess", async (
             KnowledgeService svc,
@@ -329,11 +358,18 @@ public static class KnowledgeEndpoints
                     return Results.Json(new { error = "Access denied to this knowledge item." }, statusCode: 403);
             }
 
-            var result = await svc.ReprocessKnowledgeAsync(id, ct);
-            return result is null
-                ? Results.NotFound(new { error = "Knowledge item not found" })
-                : Results.Ok(result);
-        }).Produces<ReprocessResult>().Produces(404);
+            try
+            {
+                var result = await svc.ReprocessKnowledgeAsync(id, ct);
+                return result is null
+                    ? Results.NotFound(new { error = "Knowledge item not found" })
+                    : Results.Ok(result);
+            }
+            catch (SealedItemLockedException ex)
+            {
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict);
+            }
+        }).Produces<ReprocessResult>().Produces(404).Produces(409);
 
         group.MapGet("/stats", async (
             KnowledgeService svc,
@@ -505,9 +541,12 @@ public static class KnowledgeEndpoints
             if (knowledge == null)
                 return Results.NotFound(new { error = "Knowledge item not found" });
 
+            if (await PortableProcessingPolicy.IsProtectedAsync(db, id, ct))
+                return Results.Json(new { error = PortableProcessingPolicy.BlockedMessage }, statusCode: StatusCodes.Status409Conflict);
+
             await enrichmentWriter.EnqueueAsync(knowledge.Id, knowledge.TenantId, ct);
             return Results.Accepted(value: new { message = "Re-enrichment queued", knowledgeId = id });
-        }).Produces<object>(202).Produces(404);
+        }).Produces<object>(202).Produces(404).Produces(409);
 
         // Bulk re-enrich all items missing BriefSummary or that haven't been indexed
         // WorkGroupID: kc-feat-selfhosted-retrieval-policy-20260413-030000
@@ -517,10 +556,8 @@ public static class KnowledgeEndpoints
             IEnrichmentOutboxWriter enrichmentWriter,
             CancellationToken ct) =>
         {
-            var callerTenantId = tenantProvider.TenantId;
-
-            // Find items missing BriefSummary or not indexed
-            var itemsToReEnrich = await db.KnowledgeItems
+            // Report only eligible work; inactive recovery records and sealed rows stay locked.
+            var itemsToReEnrich = await PortableProcessingPolicy.AllowedKnowledge(db)
                 .Where(k => k.BriefSummary == null || !k.IsIndexed)
                 .Select(k => new { k.Id, k.TenantId })
                 .Take(200) // Safety cap

@@ -19,6 +19,9 @@ public static class PortabilityEndpoints
 
     public static void MapPortabilityEndpoints(this WebApplication app)
     {
+        app.MapArchivePortabilityEndpoints();
+        app.MapArchivePeerEndpoints();
+        app.MapRecoveredCustodyEndpoints();
         var group = app.MapGroup("/api/v1/portability")
             .WithTags("Portability");
 
@@ -58,6 +61,41 @@ public static class PortabilityEndpoints
             }
         }).Produces<PortableExportPackage>();
 
+        // POST supports the same scope/mode request shape as the platform, synchronously.
+        group.MapPost("/export", async (
+            HttpContext context,
+            PortableExportRequest request,
+            IPortableExportService exportService,
+            ILogger<PortableExportService> logger,
+            CancellationToken ct) =>
+        {
+            if (!AuthorizationHelpers.IsSuperAdmin(context))
+                return AuthorizationHelpers.Forbidden();
+            if (!Enum.TryParse<ExportScopeType>(request.ScopeType, true, out var scopeType) ||
+                !Enum.IsDefined(scopeType) || !Enum.GetNames<ExportScopeType>().Contains(request.ScopeType, StringComparer.OrdinalIgnoreCase))
+                return Results.BadRequest(new { error = "Invalid scopeType. Use Tenant, Vault, VaultWithChildren, MultiSelect or SingleItem." });
+            if (!Enum.TryParse<ExportMode>(request.Mode, true, out var mode) ||
+                !Enum.IsDefined(mode) || !Enum.GetNames<ExportMode>().Contains(request.Mode, StringComparer.OrdinalIgnoreCase))
+                return Results.BadRequest(new { error = "Invalid mode. Use Light or Full." });
+            var scope = new ExportScope { Type = scopeType, VaultIds = request.VaultIds, KnowledgeItemIds = request.KnowledgeItemIds };
+            try
+            {
+                if (mode == ExportMode.Full)
+                    return Results.Stream(await exportService.ExportZipAsync(scope, ct), "application/zip",
+                        $"knowz-export-{DateTime.UtcNow:yyyy-MM-dd-HHmmss}.zip");
+                return Results.Ok(await exportService.ExportAsync(scope, ct));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Scoped export failed");
+                return Results.Problem(title: "Export failed", statusCode: 500);
+            }
+        }).Produces<PortableExportPackage>().Produces(400);
+
         // POST /api/portability/import/validate
         group.MapPost("/import/validate", async (
             HttpContext context,
@@ -94,6 +132,7 @@ public static class PortabilityEndpoints
             ILogger<PortableImportService> logger,
             PortableExportPackage package,
             string strategy = "skip",
+            Guid? targetVaultId = null,
             CancellationToken ct = default) =>
         {
             if (!AuthorizationHelpers.IsSuperAdmin(context))
@@ -104,7 +143,9 @@ public static class PortabilityEndpoints
 
             try
             {
-                var result = await importService.ImportAsync(package, conflictStrategy, ct);
+                var result = targetVaultId.HasValue
+                    ? await importService.ImportAsync(package, targetVaultId.Value, conflictStrategy, ct)
+                    : await importService.ImportAsync(package, conflictStrategy, ct);
                 return result.Success
                     ? Results.Ok(result)
                     : Results.UnprocessableEntity(result);
@@ -128,6 +169,7 @@ public static class PortabilityEndpoints
             ITenantProvider tenantProvider,
             ILogger<PortableImportService> logger,
             string strategy = "skip",
+            Guid? targetVaultId = null,
             CancellationToken ct = default) =>
         {
             if (!AuthorizationHelpers.IsSuperAdmin(context))
@@ -149,7 +191,9 @@ public static class PortabilityEndpoints
                 using var stream = file.OpenReadStream();
                 using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
 
-                var result = await importService.ImportZipAsync(archive, conflictStrategy, ct);
+                var result = targetVaultId.HasValue
+                    ? await importService.ImportZipAsync(archive, targetVaultId.Value, conflictStrategy, ct)
+                    : await importService.ImportZipAsync(archive, conflictStrategy, ct);
                 return result.Success
                     ? Results.Ok(result)
                     : Results.UnprocessableEntity(result);
@@ -185,7 +229,8 @@ public static class PortabilityEndpoints
             {
                 version = CoreSchema.Version,
                 minReadableVersion = CoreSchema.MinReadableVersion,
-                compatibility = CoreSchema.GetCompatibilityInfo()
+                compatibility = CoreSchema.GetCompatibilityInfo(),
+                capabilities = new { scopedExport = true, targetVaultImport = true, asyncExport = false }
             });
         });
     }

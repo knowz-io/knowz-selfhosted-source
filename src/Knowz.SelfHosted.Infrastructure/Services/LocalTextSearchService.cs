@@ -49,7 +49,7 @@ public class LocalTextSearchService : ISearchService
                 return new List<SearchResultItem>();
 
             // Base query with per-term keyword filter including BriefSummary and ContextSummary from ContentChunks
-            var baseQuery = _db.KnowledgeItems.AsQueryable();
+            var baseQuery = PortableProcessingPolicy.AllowedKnowledge(_db);
             foreach (var term in terms)
             {
                 var pattern = $"%{term}%";

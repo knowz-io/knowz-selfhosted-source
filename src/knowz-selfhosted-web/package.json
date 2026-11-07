@@ -16,11 +16,13 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@noble/curves": "^2.4.0",
-    "@noble/hashes": "^2.4.0",
-    "@scure/bip39": "^2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@scure/bip39": "2.4.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tanstack/react-query": "^5.102.8",
+    "@zip.js/zip.js": "2.23.0",
+    "age-encryption": "0.3.1",
     "lucide-react": "^1.40.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -38,9 +40,9 @@
     "autoprefixer": "^10.5.4",
     "jsdom": "^30.0.1",
     "postcss": "^8.5.28",
-    "tailwindcss": "^3.4.0",
+    "tailwindcss": "3.4.17",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.2"
   }
 }

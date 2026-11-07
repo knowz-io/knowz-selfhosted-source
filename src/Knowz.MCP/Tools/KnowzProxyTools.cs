@@ -577,7 +577,7 @@ public class KnowzProxyTools
     }
 
     [McpServerTool(Name = "create_knowledge", Title = "Create Knowledge", ReadOnly = false, Destructive = false, OpenWorld = false)]
-    [Description("Save, store, create, add, remember, document, record, write, persist, or capture any information, notes, decisions, learnings, specs, documentation, or content for later retrieval. Use when the user wants to save something, document a decision, create a note, or store information. AI processing (summarization, entity extraction) runs automatically.")]
+    [Description("Save, store, create, add, remember, document, record, write, persist, or capture any information, notes, decisions, learnings, specs, documentation, or content for later retrieval. Use when the user wants to save something, document a decision, create a note, or store information. AI processing (summarization, entity extraction) runs automatically. Set enrichment=false for cheap ingest that skips summarization and entity extraction while still chunking and indexing for search.")]
     public async Task<string> CreateKnowledge(
         [Description("Content of the knowledge item (optional if file attachments will be added separately)")] string? content = null,
         [Description("Title for the knowledge item (optional)")] string? title = null,
@@ -586,6 +586,7 @@ public class KnowzProxyTools
         [Description("Optional topic ID to associate with")] string? topicId = null,
         [Description("Optional array of tag names to apply")] string[]? tags = null,
         [Description("Optional source/reference for the content")] string? source = null,
+        [Description("Enable AI enrichment (default: true). False skips summarization and entity extraction while keeping chunking and indexing for search.")] bool enrichment = true,
         CancellationToken cancellationToken = default)
     {
         var httpContext = GetHttpContext();
@@ -596,7 +597,8 @@ public class KnowzProxyTools
 
         var args = new Dictionary<string, object>
         {
-            ["knowledgeType"] = knowledgeType
+            ["knowledgeType"] = knowledgeType,
+            ["enrichment"] = enrichment
         };
 
         if (!string.IsNullOrEmpty(content))
@@ -667,7 +669,7 @@ public class KnowzProxyTools
     }
 
     [McpServerTool(Name = "update_knowledge", Title = "Update Knowledge", ReadOnly = false, Destructive = true, OpenWorld = false)]
-    [Description("Replace content, title, tags, or metadata of an existing knowledge item. Use when overwriting a document with entirely new content, changing tags, or moving items between vaults. All fields except ID are optional for partial updates. AI re-processing is triggered if content changes.")]
+    [Description("Replace content, title, tags, or metadata of an existing knowledge item. Use when overwriting a document with entirely new content, changing tags, or moving items between vaults. All fields except ID are optional for partial updates. AI re-processing is triggered if content changes. Set enrichment=false to skip summarization and entity extraction while still chunking and indexing the changed content for search.")]
     public async Task<object> UpdateKnowledge(
         [Description("Knowledge item ID (required)")] string? id = null,
         [Description("Updated content (optional)")] string? content = null,
@@ -676,6 +678,7 @@ public class KnowzProxyTools
         [Description("Change associated topic (optional)")] string? topicId = null,
         [Description("Replace tags (optional)")] string[]? tags = null,
         [Description("Update source/reference (optional)")] string? source = null,
+        [Description("Enable AI enrichment (default: true). False skips summarization and entity extraction while keeping chunking and indexing for search.")] bool enrichment = true,
         CancellationToken cancellationToken = default)
     {
         if (!TryRequireArg(id, "id", out var missing)) return missing;
@@ -686,7 +689,7 @@ public class KnowzProxyTools
         _logger.LogInformation("SDK Tool: update_knowledge - id={Id}, hasContent={HasContent}, hasTitle={HasTitle}",
             id, content != null, title != null);
 
-        var args = new Dictionary<string, object> { ["id"] = id };
+        var args = new Dictionary<string, object> { ["id"] = id, ["enrichment"] = enrichment };
 
         if (!string.IsNullOrEmpty(content))
         {
@@ -1207,5 +1210,84 @@ public class KnowzProxyTools
         if (!string.IsNullOrEmpty(endDate)) args["endDate"] = endDate;
 
         return await _backend.ExecuteToolAsync("list_knowledge_items", args, cancellationToken);
+    }
+    [McpServerTool(Name = "list_agents", Title = "List Agents", ReadOnly = true, Destructive = false, OpenWorld = false)]
+    [Description("List Agent Workspace agent definitions visible to the caller. Owner/Admin see all tenant agents; Members see own plus Tenant-visibility agents. Supports optional status filter and paging.")]
+    public async Task<object> ListAgents(
+        [Description("Page number (1-based, default: 1)")] int page = 1,
+        [Description("Items per page (1-100, default: 20)")] int pageSize = 20,
+        [Description("Optional status filter: Active | Paused | Archived")] string? status = null,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("SDK Tool: list_agents - page={Page}, pageSize={PageSize}, status={Status}", page, pageSize, status ?? "default");
+        var args = new Dictionary<string, object>
+        {
+            ["page"] = page,
+            ["pageSize"] = pageSize
+        };
+        if (!string.IsNullOrWhiteSpace(status))
+            args["status"] = status;
+        return await _backend.ExecuteToolAsync("list_agents", args, cancellationToken);
+    }
+
+    [McpServerTool(Name = "get_agent", Title = "Get Agent", ReadOnly = true, Destructive = false, OpenWorld = false)]
+    [Description("Get a single Agent Workspace agent definition by id. Returns opaque not-found when the agent is not visible to the caller.")]
+    public async Task<object> GetAgent(
+        [Description("Agent definition GUID (required)")] string? id = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryRequireArg(id, "id", out var missing)) return missing;
+        _logger.LogInformation("SDK Tool: get_agent - id={Id}", id);
+        return await _backend.ExecuteToolAsync("get_agent", new Dictionary<string, object> { ["id"] = id }, cancellationToken);
+    }
+
+    [McpServerTool(Name = "send_agent_message", Title = "Send Agent Message", ReadOnly = false, Destructive = false, OpenWorld = false)]
+    [Description("Send a message on the Agent Workspace bus: handoff, fyi, wake, or channel_post. Enforces CanView/CanWake and channel membership. Wake and handoff(auto) create a bound AgentTask.")]
+    public async Task<object> SendAgentMessage(
+        [Description("Message type: handoff | fyi | wake | channel_post (required)")] string? type = null,
+        [Description("Message body (required, max 10000 chars)")] string? body = null,
+        [Description("Target agent GUID (required for handoff/fyi/wake)")] string? toAgentId = null,
+        [Description("Optional from-agent GUID")] string? fromAgentId = null,
+        [Description("Channel GUID (required for channel_post)")] string? channelId = null,
+        [Description("Optional AgentThread GUID")] string? threadId = null,
+        [Description("Optional structured payload JSON")] string? payloadJson = null,
+        [Description("On handoff, also wake the target (default true)")] bool autoWake = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryRequireArg(type, "type", out var missingType)) return missingType;
+        if (!TryRequireArg(body, "body", out var missingBody)) return missingBody;
+        _logger.LogInformation("SDK Tool: send_agent_message - type={Type}, to={To}, channel={Channel}", type, toAgentId, channelId);
+        var args = new Dictionary<string, object>
+        {
+            ["type"] = type,
+            ["body"] = body,
+            ["autoWake"] = autoWake
+        };
+        if (!string.IsNullOrWhiteSpace(toAgentId)) args["toAgentId"] = toAgentId;
+        if (!string.IsNullOrWhiteSpace(fromAgentId)) args["fromAgentId"] = fromAgentId;
+        if (!string.IsNullOrWhiteSpace(channelId)) args["channelId"] = channelId;
+        if (!string.IsNullOrWhiteSpace(threadId)) args["threadId"] = threadId;
+        if (!string.IsNullOrWhiteSpace(payloadJson)) args["payloadJson"] = payloadJson;
+        return await _backend.ExecuteToolAsync("send_agent_message", args, cancellationToken);
+    }
+
+    [McpServerTool(Name = "wake_agent", Title = "Wake Agent", ReadOnly = false, Destructive = false, OpenWorld = false)]
+    [Description("Wake an Agent Workspace agent (convenience for send_agent_message type=wake). Requires CanWake. Creates a bound AgentTask and enqueues it.")]
+    public async Task<object> WakeAgent(
+        [Description("Agent definition GUID to wake (required)")] string? agentId = null,
+        [Description("Wake instruction / body (optional)")] string? body = null,
+        [Description("Optional from-agent GUID")] string? fromAgentId = null,
+        [Description("Optional AgentThread GUID")] string? threadId = null,
+        [Description("Optional structured payload JSON")] string? payloadJson = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryRequireArg(agentId, "agentId", out var missing)) return missing;
+        _logger.LogInformation("SDK Tool: wake_agent - agentId={AgentId}", agentId);
+        var args = new Dictionary<string, object> { ["agentId"] = agentId };
+        if (!string.IsNullOrWhiteSpace(body)) args["body"] = body;
+        if (!string.IsNullOrWhiteSpace(fromAgentId)) args["fromAgentId"] = fromAgentId;
+        if (!string.IsNullOrWhiteSpace(threadId)) args["threadId"] = threadId;
+        if (!string.IsNullOrWhiteSpace(payloadJson)) args["payloadJson"] = payloadJson;
+        return await _backend.ExecuteToolAsync("wake_agent", args, cancellationToken);
     }
 }

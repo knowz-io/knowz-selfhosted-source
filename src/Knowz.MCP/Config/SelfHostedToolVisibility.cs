@@ -28,17 +28,28 @@ public static class SelfHostedToolVisibility
         "list_todos", "get_todo_summary", "create_todo", "update_todo_status",
         "inspect_document_map", "get_document_window", "search_document_text",
         "amend_knowledge_async", "get_amend_request_status",
+        // Agent Workspace is a hosted control-plane feature, absent from the public API.
+        "get_agent", "list_agents", "send_agent_message", "wake_agent",
     };
 
     /// <summary>
     /// SH-true tool descriptions applied to the advertised list at startup (R7, R8).
-    /// The hosted text for these three is wrong on self-hosted: amend_knowledge is synchronous and
+    /// The hosted text for these tools is wrong on self-hosted: amend_knowledge is synchronous and
     /// is the only amend (its advertised replacement is hidden), and cross-tenant vault sharing
-    /// does not exist in this edition.
+    /// and enrichment stage selection do not exist in this edition.
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> SelfHostedDescriptions
         = new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            ["create_knowledge"] =
+                "Create a knowledge item for later retrieval. AI enrichment runs automatically. " +
+                "enrichment=false is unavailable in this edition and is rejected before saving.",
+
+            ["update_knowledge"] =
+                "Update content, title, tags, or metadata of an existing knowledge item. " +
+                "AI enrichment runs when content changes. enrichment=false is unavailable in " +
+                "this edition and is rejected before saving.",
+
             ["amend_knowledge"] =
                 "Apply a natural-language edit instruction to an existing knowledge item — add a section, " +
                 "update part of the content, remove a paragraph, fix information, or make any incremental " +
@@ -76,6 +87,18 @@ public static class SelfHostedToolVisibility
     public static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> SelfHostedParameterDescriptions
         = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal)
         {
+            ["create_knowledge"] = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["enrichment"] =
+                    "Defaults to true. False is unavailable in this edition; the request is rejected " +
+                    "before saving. Use the platform proxy backend for retrieval-only ingest.",
+            },
+            ["update_knowledge"] = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["enrichment"] =
+                    "Defaults to true. False is unavailable in this edition; the request is rejected " +
+                    "before saving. Use the platform proxy backend for retrieval-only ingest.",
+            },
             ["upload_file"] = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["description"] =

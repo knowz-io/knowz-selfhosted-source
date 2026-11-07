@@ -1,24 +1,30 @@
-import { useState } from 'react'
-import { runDecrypt } from '../lib/decrypt-flow'
+import { ArchiveWorkbench } from '../components/portability/ArchiveWorkbench'
+import { useEffect, useRef, useState } from 'react'
+import { runDecrypt, SafeDecryptError, GENERIC_DECRYPT_ERROR } from '../lib/decrypt-flow'
 
 export default function LocalDecryptPage() {
   const [messageText, setMessageText] = useState('')
   const [keyText, setKeyText] = useState('')
+  const [passphrase, setPassphrase] = useState('')
+  const epoch = useRef(0)
+  useEffect(() => () => { epoch.current++ }, [])
+  const clear = () => { epoch.current++; setPlaintext(null); setKeyText(''); setPassphrase(''); setMessageText(''); setError(null); setBusy(false) }
   const [plaintext, setPlaintext] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function onUnlock() {
+    const version = ++epoch.current
     setBusy(true)
     setError(null)
     setPlaintext(null)
     try {
-      const result = await runDecrypt({ messageText, keyText })
-      setPlaintext(result.plaintext)
+      const result = await runDecrypt({ messageText, keyText, passphrase })
+      if (epoch.current === version) setPlaintext(result.plaintext)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not decrypt.')
+      if (epoch.current === version) setError(err instanceof SafeDecryptError ? err.message : GENERIC_DECRYPT_ERROR)
     } finally {
-      setBusy(false)
+      if (epoch.current === version) { setBusy(false); setKeyText(''); setPassphrase('') }
     }
   }
 
@@ -48,6 +54,7 @@ export default function LocalDecryptPage() {
           onChange={(event) => setKeyText(event.target.value)}
         />
       </label>
+      <label className="block space-y-2"><span>Key file passphrase</span><input type="password" autoComplete="off" value={passphrase} disabled={busy} onChange={event => setPassphrase(event.target.value)} className="w-full rounded-md border border-border bg-background p-3" /></label>
       <button
         type="button"
         data-testid="decrypt-submit"
@@ -62,11 +69,13 @@ export default function LocalDecryptPage() {
           {error}
         </p>
       ) : null}
-      {plaintext ? (
+      <button type="button" onClick={clear}>Clear recovered message</button>
+      {plaintext !== null ? (
         <pre data-testid="decrypt-plaintext" className="overflow-auto rounded-md border border-border bg-card p-4 text-sm">
-          {plaintext}
+          {plaintext === '' ? '(Empty content)' : plaintext}
         </pre>
       ) : null}
+      <ArchiveWorkbench />
     </div>
   )
 }

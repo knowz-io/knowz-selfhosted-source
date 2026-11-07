@@ -161,6 +161,8 @@ public static class SyncEndpoints
           .Produces(StatusCodes.Status429TooManyRequests);
 
         // --- Platform Browse Proxy (NodeID: PlatformBrowsing) ---
+        // ADR_G6 (#1043): every browse route accepts an optional ?connectionId= so a non-primary
+        // (allowlisted peer) connection can be browsed when establishing a link. Omitted → primary.
 
         // GET /api/v1/sync/platform/vaults — List vaults on the platform
         group.MapGet("/platform/vaults", async (
@@ -169,12 +171,13 @@ public static class SyncEndpoints
             SelfHostedDbContext db,
             IPlatformConnectionService connectionService,
             IPlatformAuditLog auditLog,
+            [FromQuery] Guid? connectionId,
             CancellationToken ct) =>
         {
             if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
                 return AuthorizationHelpers.Forbidden();
 
-            var credential = await ResolvePlatformCredentialAsync(db, connectionService, ct);
+            var credential = await ResolvePlatformCredentialAsync(db, connectionService, connectionId, ct);
             if (credential is null)
             {
                 return Results.Json(
@@ -214,6 +217,7 @@ public static class SyncEndpoints
             [FromQuery] int? page,
             [FromQuery] int? pageSize,
             [FromQuery] string? search,
+            [FromQuery] Guid? connectionId,
             CancellationToken ct) =>
         {
             if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
@@ -229,7 +233,7 @@ public static class SyncEndpoints
             if (effectivePageSize > 100)
                 return Results.BadRequest(new { error = "pageSize must be <= 100" });
 
-            var credential = await ResolvePlatformCredentialAsync(db, connectionService, ct);
+            var credential = await ResolvePlatformCredentialAsync(db, connectionService, connectionId, ct);
             if (credential is null)
             {
                 return Results.Json(
@@ -266,12 +270,13 @@ public static class SyncEndpoints
             IPlatformSyncClient platformClient,
             SelfHostedDbContext db,
             IPlatformConnectionService connectionService,
+            [FromQuery] Guid? connectionId,
             CancellationToken ct) =>
         {
             if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
                 return AuthorizationHelpers.Forbidden();
 
-            var credential = await ResolvePlatformCredentialAsync(db, connectionService, ct);
+            var credential = await ResolvePlatformCredentialAsync(db, connectionService, connectionId, ct);
             if (credential is null)
             {
                 return Results.Json(
@@ -340,6 +345,9 @@ public static class SyncEndpoints
             if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
                 return AuthorizationHelpers.Forbidden();
 
+            if (RejectSelfPoint(context, request.PlatformApiUrl) is { } selfPoint)
+                return selfPoint;
+
             var userId = AuthorizationHelpers.GetCallerId(context) ?? Guid.Empty;
             try
             {
@@ -386,6 +394,10 @@ public static class SyncEndpoints
             if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
                 return AuthorizationHelpers.Forbidden();
 
+            var existing = await connectionService.GetAsync(ct);
+            if (existing is not null && RejectSelfPoint(context, existing.PlatformApiUrl) is { } selfPoint)
+                return selfPoint;
+
             var result = await connectionService.TestAsync(
                 AuthorizationHelpers.GetCallerId(context),
                 GetCallerEmail(context),
@@ -404,6 +416,9 @@ public static class SyncEndpoints
             if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
                 return AuthorizationHelpers.Forbidden();
 
+            if (RejectSelfPoint(context, request.PlatformApiUrl) is { } selfPoint)
+                return selfPoint;
+
             var result = await connectionService.TestCandidateAsync(
                 request.PlatformApiUrl, request.ApiKey,
                 AuthorizationHelpers.GetCallerId(context),
@@ -412,6 +427,155 @@ public static class SyncEndpoints
             context.Response.Headers.CacheControl = "no-store";
             return Results.Ok(result);
         }).Produces<PlatformConnectionTestResult>();
+
+        // --- Multi-connection (ADR_G6_Allowlisted_Peer_Destinations, #1043) ---
+        // Additive. The singleton-shaped /connection* routes above keep addressing the tenant's
+        // PRIMARY connection so the Cloud Destinations UI is unchanged.
+        // UI_SH_PeerDestination: consumed by the SH web Destinations UI (ConnectionList /
+        // LinkVaultModal / BrowsePlatformModal picker). Portable↔SH / SH↔SH live smoke remains open (#1043).
+
+        // GET /api/v1/sync/connections — All of the tenant's connections (masked), oldest first.
+        group.MapGet("/connections", async (
+            HttpContext context,
+            IPlatformConnectionService connectionService,
+            CancellationToken ct) =>
+        {
+            if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
+                return AuthorizationHelpers.Forbidden();
+
+            var list = await connectionService.ListAsync(ct);
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(list);
+        }).Produces<IReadOnlyList<PlatformConnectionDto>>();
+
+        // POST /api/v1/sync/connections — Create an additional connection (API key required).
+        // 400 on URL validation failure (incl. host not in Sync:AllowedPlatformHosts) or
+        // duplicate (tenant, URL).
+        group.MapPost("/connections", async (
+            HttpContext context,
+            [FromBody] UpsertPlatformConnectionRequest request,
+            IPlatformConnectionService connectionService,
+            CancellationToken ct) =>
+        {
+            if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
+                return AuthorizationHelpers.Forbidden();
+
+            if (RejectSelfPoint(context, request.PlatformApiUrl) is { } selfPoint)
+                return selfPoint;
+
+            var userId = AuthorizationHelpers.GetCallerId(context) ?? Guid.Empty;
+            try
+            {
+                var dto = await connectionService.CreateAsync(request, userId, ct);
+                context.Response.Headers.CacheControl = "no-store";
+                return Results.Created($"/api/v1/sync/connections/{dto.Id}", dto);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        }).Produces<PlatformConnectionDto>(StatusCodes.Status201Created);
+
+        // GET /api/v1/sync/connections/{id}
+        group.MapGet("/connections/{connectionId:guid}", async (
+            Guid connectionId,
+            HttpContext context,
+            IPlatformConnectionService connectionService,
+            CancellationToken ct) =>
+        {
+            if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
+                return AuthorizationHelpers.Forbidden();
+
+            var dto = await connectionService.GetByIdAsync(connectionId, ct);
+            if (dto is null)
+                return Results.NotFound();
+
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(dto);
+        }).Produces<PlatformConnectionDto>()
+          .Produces(StatusCodes.Status404NotFound);
+
+        // PUT /api/v1/sync/connections/{id} — URL / display name; key only when supplied.
+        group.MapPut("/connections/{connectionId:guid}", async (
+            Guid connectionId,
+            HttpContext context,
+            [FromBody] UpsertPlatformConnectionRequest request,
+            IPlatformConnectionService connectionService,
+            CancellationToken ct) =>
+        {
+            if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
+                return AuthorizationHelpers.Forbidden();
+
+            if (RejectSelfPoint(context, request.PlatformApiUrl) is { } selfPoint)
+                return selfPoint;
+
+            var userId = AuthorizationHelpers.GetCallerId(context) ?? Guid.Empty;
+            try
+            {
+                var dto = await connectionService.UpdateAsync(connectionId, request, userId, ct);
+                if (dto is null)
+                    return Results.NotFound();
+
+                context.Response.Headers.CacheControl = "no-store";
+                return Results.Ok(dto);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        }).Produces<PlatformConnectionDto>()
+          .Produces(StatusCodes.Status404NotFound);
+
+        // DELETE /api/v1/sync/connections/{id} — 409 while any VaultSyncLink references it.
+        group.MapDelete("/connections/{connectionId:guid}", async (
+            Guid connectionId,
+            HttpContext context,
+            IPlatformConnectionService connectionService,
+            CancellationToken ct) =>
+        {
+            if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
+                return AuthorizationHelpers.Forbidden();
+
+            try
+            {
+                var removed = await connectionService.DeleteByIdAsync(
+                    connectionId,
+                    AuthorizationHelpers.GetCallerId(context),
+                    GetCallerEmail(context),
+                    ct);
+                return removed ? Results.NoContent() : Results.NotFound();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        // POST /api/v1/sync/connections/{id}/test — Test one stored connection.
+        group.MapPost("/connections/{connectionId:guid}/test", async (
+            Guid connectionId,
+            HttpContext context,
+            IPlatformConnectionService connectionService,
+            CancellationToken ct) =>
+        {
+            if (!AuthorizationHelpers.IsAuthenticatedKnowzUser(context))
+                return AuthorizationHelpers.Forbidden();
+
+            var existing = await connectionService.GetByIdAsync(connectionId, ct);
+            if (existing is not null && RejectSelfPoint(context, existing.PlatformApiUrl) is { } selfPoint)
+                return selfPoint;
+
+            var result = await connectionService.TestByIdAsync(
+                connectionId,
+                AuthorizationHelpers.GetCallerId(context),
+                GetCallerEmail(context),
+                ct);
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(result);
+        }).Produces<PlatformConnectionTestResult>();
+
+        // Passive receive surface for peers (ADR_G6, #1043).
+        app.MapSyncReceiveEndpoints(group);
     }
 
     private static string? GetCallerEmail(HttpContext context)
@@ -444,15 +608,22 @@ public static class SyncEndpoints
 
     /// <summary>
     /// Resolves the platform API URL + API key for the current tenant.
-    /// Prefers the per-tenant <c>PlatformConnection</c> row via
-    /// <see cref="IPlatformConnectionService.ResolveForOutboundCallAsync"/> and falls back
-    /// to the obsolete per-link columns for rows not yet migrated.
+    /// With an explicit <paramref name="connectionId"/> resolves that connection; otherwise
+    /// prefers the tenant's PRIMARY <c>PlatformConnection</c> row via
+    /// <see cref="IPlatformConnectionService.ResolveForOutboundCallAsync(CancellationToken)"/>
+    /// and falls back to the obsolete per-link columns for rows not yet migrated.
     /// </summary>
     private static async Task<(string Url, string ApiKey)?> ResolvePlatformCredentialAsync(
         SelfHostedDbContext db,
         IPlatformConnectionService connectionService,
+        Guid? connectionId,
         CancellationToken ct)
     {
+        // ADR_G6 (#1043): explicit connection id → that connection only (no primary fallback,
+        // so a typo can never silently browse a different destination).
+        if (connectionId is Guid id)
+            return await connectionService.ResolveForOutboundCallAsync(id, ct);
+
         var resolved = await connectionService.ResolveForOutboundCallAsync(ct);
         if (resolved is { } tuple)
             return tuple;
@@ -522,4 +693,29 @@ public static class SyncEndpoints
             _ => Results.UnprocessableEntity(result),
         };
     }
+
+    /// <summary>
+    /// Reject destinations that point back at this same instance (host+port match).
+    /// </summary>
+    private static bool IsSelfPoint(HttpContext context, string? destinationUrl)
+    {
+        if (string.IsNullOrWhiteSpace(destinationUrl)) return false;
+        if (!Uri.TryCreate(destinationUrl.Trim(), UriKind.Absolute, out var dest)) return false;
+        var req = context.Request;
+        var localHost = req.Host.Host;
+        var localPort = req.Host.Port
+            ?? (string.Equals(req.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? 443 : 80);
+        var destPort = dest.IsDefaultPort
+            ? (string.Equals(dest.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? 443 : 80)
+            : dest.Port;
+        return string.Equals(localHost, dest.Host, StringComparison.OrdinalIgnoreCase)
+               && localPort == destPort;
+    }
+
+    private static IResult? RejectSelfPoint(HttpContext context, string? destinationUrl)
+    {
+        if (!IsSelfPoint(context, destinationUrl)) return null;
+        return Results.BadRequest(new { error = "A destination cannot point at this instance itself." });
+    }
+
 }

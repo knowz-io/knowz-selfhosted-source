@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text;
 using Knowz.Core.Entities;
+using Knowz.Core.Enums;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Knowz.Core.Interfaces;
 using Knowz.SelfHosted.Application.Services;
 using Knowz.SelfHosted.Application.Validators;
@@ -43,7 +45,7 @@ public class FileSyncServiceTests : IDisposable
     public FileSyncServiceTests()
     {
         var options = new DbContextOptionsBuilder<SelfHostedDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         _tenantProvider = Substitute.For<ITenantProvider>();
         _tenantProvider.TenantId.Returns(TenantId);
@@ -99,6 +101,10 @@ public class FileSyncServiceTests : IDisposable
 
     private VaultSyncLink SeedConnectionLink(string? apiKeyProtected = null)
     {
+        var creator = new User { TenantId = TenantId, Username = "sync-fixture", Role = UserRole.Admin, IsActive = true };
+        _db.Tenants.Add(new() { Id = TenantId, Name = "Sync fixture", Slug = "sync-fixture" }); _db.Users.Add(creator);
+        _db.UserTenantMemberships.Add(new() { UserId = creator.Id, TenantId = TenantId, Role = UserRole.Admin, IsActive = true });
+        _db.Vaults.Add(new() { Id = LocalVaultId, TenantId = TenantId, Name = "Sync fixture vault" });
         _db.PlatformConnections.Add(new PlatformConnection
         {
             Id = ConnectionId,
@@ -106,7 +112,7 @@ public class FileSyncServiceTests : IDisposable
             PlatformApiUrl = BaseUrl,
             ApiKeyProtected = apiKeyProtected ?? Protect(ApiKey, TenantId),
             ApiKeyLast4 = ApiKey[^4..],
-            CreatedByUserId = Guid.NewGuid(),
+            CreatedByUserId = creator.Id,
         });
         var link = new VaultSyncLink
         {
@@ -299,13 +305,15 @@ public class FileSyncServiceTests : IDisposable
                 {
                     Content = new StringContent("hello-bytes", Encoding.UTF8, "text/plain")
                 };
-        _storage.UploadAsync(TenantId, RemoteFileId, Arg.Any<Stream>(), "text/plain", Arg.Any<CancellationToken>())
+        _storage.UploadAsync(TenantId, Arg.Any<Guid>(), Arg.Any<Stream>(), "text/plain", Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
                 using var reader = new StreamReader(ci.Arg<Stream>());
                 stored = reader.ReadToEnd();
                 return "ok";
             });
+        _storage.DownloadAsync(TenantId, Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(_ => ((Stream)new MemoryStream(Encoding.UTF8.GetBytes(stored!)), "text/plain", "notes.txt"));
         var (service, _) = Build();
 
         var result = await service.SyncFilesAsync(link);

@@ -1,18 +1,22 @@
 namespace Knowz.SelfHosted.Infrastructure.Data.Entities;
 
 /// <summary>
-/// Per-tenant platform credential store — one row per selfhosted tenant.
-/// Holds the encrypted platform API key and base URL used by all sync operations.
+/// Per-tenant platform / peer credential store — one row per (tenant, destination URL).
+/// Since ADR_G6_Allowlisted_Peer_Destinations (#1043) a tenant may hold several connections
+/// (Knowz Cloud plus allowlisted peers); the earliest-created row is the "primary" that the
+/// legacy singleton routes address. Holds the encrypted API key and base URL used by all sync operations.
 /// Replaces the per-link API key duplication on <see cref="VaultSyncLink"/>.
 /// Security: the ApiKeyProtected column is ciphertext produced by
 /// <c>IDataProtectionProvider.CreateProtector("Knowz.SelfHosted.PlatformSync").CreateProtector($"Knowz.SelfHosted.PlatformSync.{tenantId}")</c>.
 /// </summary>
 public class PlatformConnection
 {
+    /// <summary>Changes only for security configuration, never ordinary sync/health status.</summary>
+    public string SecurityRevision { get; set; } = Guid.NewGuid().ToString("N");
     public Guid Id { get; set; } = Guid.NewGuid();
 
     /// <summary>
-    /// Owning tenant. Unique index: one PlatformConnection per tenant.
+    /// Owning tenant. Indexed (non-unique); the unique key is (TenantId, PlatformApiUrl).
     /// </summary>
     public Guid TenantId { get; set; }
 

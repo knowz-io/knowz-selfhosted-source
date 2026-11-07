@@ -5,6 +5,8 @@ namespace Knowz.SelfHosted.Infrastructure.Data.Entities;
 /// </summary>
 public class VaultSyncLink
 {
+    /// <summary>Changes only for security configuration, never ordinary sync/health status.</summary>
+    public string SecurityRevision { get; set; } = Guid.NewGuid().ToString("N");
     public Guid Id { get; set; } = Guid.NewGuid();
 
     /// <summary>

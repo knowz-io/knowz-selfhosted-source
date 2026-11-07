@@ -9,6 +9,9 @@ vi.mock('../lib/api-client', () => ({
   api: {
     runSyncLink: vi.fn(),
     removeSyncLink: vi.fn(),
+    getSavedPeer: vi.fn().mockResolvedValue({ status: 'not-registered', binding: null }),
+    registerSavedPeer: vi.fn(),
+    transferSavedPeer: vi.fn(),
   },
   ApiError: class ApiError extends Error {
     status: number
@@ -72,13 +75,30 @@ describe('VaultLinksTable', () => {
     )
     expect(screen.getByText('No vault sync links configured.')).toBeInTheDocument()
   })
+  it('offers complete archive registration for a link bound to a saved destination without starting the legacy orchestrator', async () => {
+    renderWithProviders(<VaultLinksTable links={[{ ...linkA, platformConnectionId: 'saved-connection' }]} isLoading={false} onBrowsePlatform={() => {}} />);
+    await screen.findByRole('button', { name: 'Register complete archives' });
+    expect(api.getSavedPeer).toHaveBeenCalledWith('link-1', expect.any(AbortSignal));
+    expect(mockRunSync).not.toHaveBeenCalled();
+    const legacy = screen.getByRole('button', { name: /^full$/i }).closest('details');
+    expect(legacy).toHaveTextContent('Legacy plain inline sync'); expect(legacy).not.toHaveAttribute('open');
+  })
 
+  it('explains the local personal API-key prerequisite separately from original vault encryption keys', async () => {
+    renderWithProviders(<VaultLinksTable links={[{ ...linkA, platformConnectionId: 'saved-connection' }]} isLoading={false} onBrowsePlatform={() => {}} />);
+    const helper = screen.getByTestId('archive-local-key-helper');
+    expect(helper).toHaveTextContent('personal API key for your local account');
+    expect(helper).toHaveTextContent('replace that key, review and register each link again');
+    expect(helper).toHaveTextContent('Original vault encryption keys stay on your device');
+    expect(screen.getByRole('link', { name: 'Settings → API keys' })).toHaveAttribute('href', '/settings?tab=api-keys');
+    expect(mockRunSync).not.toHaveBeenCalled();
+  })
   it('Should_RenderColumnHeaders_WhenLinksExist', () => {
     renderWithProviders(
       <VaultLinksTable links={[linkA]} isLoading={false} onBrowsePlatform={() => {}} />,
     )
     expect(screen.getByText('Local Vault')).toBeInTheDocument()
-    expect(screen.getByText('Knowz Cloud Vault')).toBeInTheDocument()
+    expect(screen.getByText('Destination Vault')).toBeInTheDocument()
     expect(screen.getByText('Status')).toBeInTheDocument()
     expect(screen.getByText('Last Sync')).toBeInTheDocument()
     expect(screen.getByText('Actions')).toBeInTheDocument()
@@ -270,6 +290,56 @@ describe('VaultLinksTable — run-result banner (S5, VERIFY-SH-2..4)', () => {
     expect(banner.textContent).toContain('Run again')
     expect(banner.textContent).toContain('100 accepted')
     expect(banner.className).toMatch(/amber/)
+  })
+
+  it('Should_PromoteSkipReasons_OutOfCollapsedDetails_WhenFullRunIsPartial', async () => {
+    // Verbatim `VaultSyncOrchestrator.PushSkippedDetail` / `FilesSkippedPartialDetail` (G7 #1044).
+    const pushSkipped = 'Push skipped — 100-item limit reached during pull. Re-run to continue.'
+    const filesSkipped =
+      'Files skipped — run stopped at the 100-item limit before the file lane. Re-run until the run is no longer partial; files sync after pull and push complete.'
+    const capLine = 'Reached 100-item limit — run again to continue.'
+    const user = userEvent.setup()
+    mockRunSync.mockResolvedValue(
+      syncResult({
+        direction: 'Full',
+        pullAccepted: 100,
+        partial: true,
+        details: ['Pull complete: 100 accepted, 0 skipped', pushSkipped, filesSkipped, capLine],
+      }),
+    )
+    renderTable()
+    await user.click(screen.getByRole('button', { name: /^full$/i }))
+
+    const banner = await screen.findByTestId('sync-run-banner')
+    expect(banner.className).toMatch(/amber/)
+
+    // Skip reasons render in the banner body, outside the collapsed <details>.
+    const skipReasons = screen.getByTestId('sync-run-skip-reasons')
+    expect(skipReasons.textContent).toContain(pushSkipped)
+    expect(skipReasons.textContent).toContain(filesSkipped)
+    const collapsed = banner.querySelector('details')
+    expect(collapsed).not.toBeNull()
+    expect(collapsed!.textContent).not.toContain('Push skipped')
+    expect(collapsed!.textContent).not.toContain('Files skipped')
+    // The remaining lines stay in the collapsed list and the count reflects only them.
+    expect(collapsed!.textContent).toContain('Details (2)')
+    expect(collapsed!.textContent).toContain(capLine)
+  })
+
+  it('Should_NotPromoteOrdinaryDetails_WhenTheyMerelyMentionSkipping', async () => {
+    const user = userEvent.setup()
+    mockRunSync.mockResolvedValue(
+      syncResult({
+        direction: 'PullOnly',
+        pullAccepted: 1,
+        details: ['Skipped 1 item with an unsupported type.'],
+      }),
+    )
+    renderTable()
+    await user.click(screen.getByRole('button', { name: /^pull$/i }))
+
+    await screen.findByTestId('sync-run-banner')
+    expect(screen.queryByTestId('sync-run-skip-reasons')).not.toBeInTheDocument()
   })
 
   it('Should_ShowRateLimitCopy_WhenServerReturns429ForTheHourlyQuota', async () => {
@@ -534,5 +604,94 @@ describe('VaultLinksTable — banner safety and announcement (OPTIONAL-2, -3, -5
     await waitFor(() =>
       expect(screen.queryByTestId('sync-run-banner')).not.toBeInTheDocument(),
     )
+  })
+})
+
+// ---------- UI_SH_PeerDestination : destination-aware rows + Link a vault ----------
+describe('VaultLinksTable — destinations (UI_SH_PeerDestination)', () => {
+  const base = {
+    hasApiKey: true,
+    apiKeyMask: 'ukz_****ABCD',
+    remoteTenantId: null,
+    lastTestedAt: null,
+    lastTestStatus: 'Ok' as const,
+    lastTestError: null,
+    updatedAt: '2026-09-23T00:00:00Z',
+  }
+  const cloud = { ...base, id: 'c-cloud', platformApiUrl: 'https://api.knowz.io', displayName: null }
+  const peer = {
+    ...base,
+    id: 'c-peer',
+    platformApiUrl: 'https://knowz.example.com',
+    displayName: 'Office instance',
+  }
+  const peerLink: VaultSyncStatusDto = {
+    linkId: 'link-peer',
+    localVaultId: 'local-peer',
+    localVaultName: 'Field notes',
+    remoteVaultId: 'remote-peer-1',
+    platformApiUrl: 'https://knowz.example.com',
+    platformConnectionId: 'c-peer',
+    status: 'Ok',
+    lastSyncError: null,
+    lastSyncCompletedAt: null,
+    lastPullCursor: null,
+    lastPushCursor: null,
+    syncEnabled: true,
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('Should_NameEachRowsDestination_AndDirectionTitles', () => {
+    renderWithProviders(
+      <VaultLinksTable
+        links={[linkA, peerLink]}
+        connections={[cloud, peer]}
+        isLoading={false}
+        onBrowsePlatform={() => {}}
+      />,
+    )
+    const labels = screen.getAllByTestId('link-destination').map((el) => el.textContent)
+    expect(labels).toEqual(['Knowz Cloud', 'Office instance'])
+    const pulls = screen.getAllByRole('button', { name: /^pull$/i })
+    expect(pulls[1].getAttribute('title')).toBe('Pull: Office instance → this instance')
+    const pushes = screen.getAllByRole('button', { name: /^push$/i })
+    expect(pushes[1].getAttribute('title')).toBe('Push: this instance → Office instance')
+  })
+
+  it('Should_KeepTheCloudBrowseLabel_WithoutPeers_AndGeneraliseWithThem', () => {
+    const { unmount } = renderWithProviders(
+      <VaultLinksTable links={[linkA]} connections={[cloud]} isLoading={false} onBrowsePlatform={() => {}} />,
+    )
+    expect(screen.getByRole('button', { name: /browse knowz cloud/i })).toBeInTheDocument()
+    unmount()
+    renderWithProviders(
+      <VaultLinksTable
+        links={[linkA]}
+        connections={[cloud, peer]}
+        isLoading={false}
+        onBrowsePlatform={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /browse a destination/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /browse knowz cloud/i })).toBeNull()
+  })
+
+  it('Should_OfferLinkAVault_WhenAHandlerIsProvided', async () => {
+    const user = userEvent.setup()
+    const onLinkVault = vi.fn()
+    renderWithProviders(
+      <VaultLinksTable
+        links={[]}
+        isLoading={false}
+        onBrowsePlatform={() => {}}
+        onLinkVault={onLinkVault}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /link a vault/i }))
+    expect(onLinkVault).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/run Pull, Push, or Full when you choose/)).toBeInTheDocument()
   })
 })

@@ -1,10 +1,14 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using Knowz.Core.Interfaces;
+using Knowz.SelfHosted.Application.DTOs;
+using Knowz.SelfHosted.Application.Interfaces;
 using Knowz.SelfHosted.Infrastructure.Data;
+using Knowz.SelfHosted.Infrastructure.Data.Entities;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +29,7 @@ public class SyncConnectionAuthorizationTests : IAsyncLifetime
 
     private readonly WebApplicationFactory<Program> _factory;
     private readonly string _dbName;
+    private readonly IPlatformConnectionService _connectionService = Substitute.For<IPlatformConnectionService>();
 
     public SyncConnectionAuthorizationTests()
     {
@@ -42,6 +47,7 @@ public class SyncConnectionAuthorizationTests : IAsyncLifetime
 
                 builder.ConfigureServices(services =>
                 {
+                    services.AddSingleton(_connectionService);
                     var descriptorsToRemove = services
                         .Where(d =>
                             d.ServiceType == typeof(DbContextOptions<SelfHostedDbContext>) ||
@@ -105,6 +111,66 @@ public class SyncConnectionAuthorizationTests : IAsyncLifetime
         using var client = _factory.CreateClient();
         var response = await client.GetAsync("/api/v1/sync/connection");
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/v1/sync/connections", "http://localhost")]
+    [InlineData("PUT", "/api/v1/sync/connection", "http://LOCALHOST:80/")]
+    [InlineData("PUT", "/api/v1/sync/connections/00000000-0000-0000-0000-000000000003", "http://localhost/another/path")]
+    [InlineData("POST", "/api/v1/sync/connection/test-candidate", "http://localhost/")]
+    [InlineData("POST", "/api/v1/sync/connection/test-candidate", "http://LOCALHOST:80/api/v1/")]
+    public async Task ConnectionWriteOrCandidate_SelfPoint_Returns400BeforeServiceCall(string method, string path, string destination)
+    {
+        using var client = ClientFor("User");
+        using var request = new HttpRequestMessage(new HttpMethod(method), path)
+        {
+            Content = JsonContent.Create(new { platformApiUrl = destination, apiKey = "kz_testtenant1234" })
+        };
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("itself", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(_connectionService.ReceivedCalls());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TestStoredConnection_SelfPoint_Returns400BeforeOutboundTest(bool multiPeer)
+    {
+        var connectionId = Guid.NewGuid();
+        var dto = new PlatformConnectionDto(connectionId, "http://LOCALHOST:80/path/", null, true,
+            "kz_****1234", null, null, PlatformConnectionTestStatus.Untested, null, DateTime.UtcNow);
+        _connectionService.GetAsync(Arg.Any<CancellationToken>()).Returns(dto);
+        _connectionService.GetByIdAsync(connectionId, Arg.Any<CancellationToken>()).Returns(dto);
+        using var client = ClientFor("User");
+        var path = multiPeer ? $"/api/v1/sync/connections/{connectionId}/test" : "/api/v1/sync/connection/test";
+
+        var response = await client.PostAsync(path, null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("itself", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        await _connectionService.DidNotReceiveWithAnyArgs().TestAsync(default, default, default);
+        await _connectionService.DidNotReceiveWithAnyArgs().TestByIdAsync(default, default, default, default);
+    }
+
+    [Theory]
+    [InlineData("http://peer.example.com")]
+    [InlineData("http://localhost:5001")]
+    public async Task TestCandidate_DifferentHostOrPort_StillUsesConnectionValidation(string destination)
+    {
+        var result = new PlatformConnectionTestResult(PlatformConnectionTestStatus.Ok, null, Guid.NewGuid(), "1");
+        _connectionService.TestCandidateAsync(destination, "kz_testtenant1234", Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(result);
+        using var client = ClientFor("User");
+
+        var response = await client.PostAsJsonAsync("/api/v1/sync/connection/test-candidate",
+            new { platformApiUrl = destination, apiKey = "kz_testtenant1234" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _connectionService.Received(1).TestCandidateAsync(destination, "kz_testtenant1234",
+            Arg.Any<Guid?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     private HttpClient ClientFor(string role)

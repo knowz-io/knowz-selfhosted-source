@@ -28,8 +28,10 @@ public class EnrichmentOutboxWriter : IEnrichmentOutboxWriter
 
     public async Task EnqueueAsync(Guid knowledgeId, Guid tenantId, bool forceReset, CancellationToken ct = default)
     {
+        if (tenantId != _db.CurrentTenantId) throw new UnauthorizedAccessException("The enrichment tenant does not match the current scope.");
+        if (await PortableProcessingPolicy.IsProtectedAsync(_db, knowledgeId, ct)) return;
         var existingRows = await _db.EnrichmentOutbox
-            .Where(e => e.KnowledgeId == knowledgeId &&
+            .Where(e => e.TenantId == tenantId && e.KnowledgeId == knowledgeId &&
                         (e.Status == EnrichmentStatus.Pending || e.Status == EnrichmentStatus.Processing))
             .ToListAsync(ct);
 

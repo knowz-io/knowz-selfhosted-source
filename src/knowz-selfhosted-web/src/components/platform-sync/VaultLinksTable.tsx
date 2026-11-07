@@ -1,4 +1,8 @@
-import { useState } from 'react'
+import { Fragment, useContext, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { AuthContext } from '../../lib/auth'
+import { SavedArchivePeerPanel } from '../portability/SavedArchivePeerPanel'
+import type { ArchivePeerTransport } from '../../lib/archive-peer-api'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Link2,
@@ -14,9 +18,15 @@ import {
   X,
 } from 'lucide-react'
 import { api, ApiError } from '../../lib/api-client'
-import type { SyncDirection, VaultSyncResult, VaultSyncStatusDto } from '../../lib/types'
+import type {
+  PlatformConnectionDto,
+  SyncDirection,
+  VaultSyncResult,
+  VaultSyncStatusDto,
+} from '../../lib/types'
 import { isSafeDetail, toUserError } from '../../lib/toUserError'
 import { useFormatters } from '../../hooks/useFormatters'
+import { describeLinkDestination, hasPeerConnections } from '../../lib/destinations'
 
 /**
  * UI_DestinationsLiveConnect S5 — the outcome of the most recent manual run.
@@ -40,19 +50,31 @@ const RUN_FAILED = 'The run did not complete.'
 /** HTTP statuses the run endpoint uses to mean something specific. */
 const RUN_REFUSED = 422
 const RATE_LIMITED = 429
+const archiveTransport: ArchivePeerTransport = { review: (id, signal) => api.getSavedPeer(id, signal), register: (id, input, signal) => api.registerSavedPeer(id, input, signal), transfer: (id, direction, binding, signal) => api.transferSavedPeer(id, direction, binding, signal) }
 
 interface VaultLinksTableProps {
   links: VaultSyncStatusDto[]
   isLoading: boolean
   onBrowsePlatform: () => void
+  /**
+   * UI_SH_PeerDestination (ADR_G6, #1043) — the stored connections, used to name each
+   * link's destination. Omitted → every link is labelled from its own URL.
+   */
+  connections?: PlatformConnectionDto[]
+  /** Opens the "Link a vault" flow (`POST /api/v1/sync/links` with `platformConnectionId`). */
+  onLinkVault?: () => void
 }
 
 export default function VaultLinksTable({
   links,
   isLoading,
   onBrowsePlatform,
+  connections = [],
+  onLinkVault,
 }: VaultLinksTableProps) {
   const queryClient = useQueryClient()
+  const auth = useContext(AuthContext)
+  const scopeKey = `${auth?.activeTenantId ?? auth?.user?.tenantId}:${auth?.user?.id}:${localStorage.getItem('apiUrl') ?? ''}`
   const fmt = useFormatters()
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [busyLinkId, setBusyLinkId] = useState<string | null>(null)
@@ -116,17 +138,36 @@ export default function VaultLinksTable({
           <Link2 size={20} className="text-muted-foreground" />
           <h2 className="text-lg font-semibold">Vault Sync Links</h2>
         </div>
-        <button
-          onClick={onBrowsePlatform}
-          className="inline-flex items-center gap-2 px-3 py-1.5 border border-input rounded-md text-sm font-medium hover:bg-muted transition-colors"
-        >
-          Browse Knowz Cloud
-        </button>
+        <div className="flex items-center gap-2">
+          {onLinkVault && (
+            <button
+              data-testid="link-vault-button"
+              onClick={onLinkVault}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+            >
+              <Link2 size={14} />
+              Link a vault
+            </button>
+          )}
+          <button
+            onClick={onBrowsePlatform}
+            className="inline-flex items-center gap-2 px-3 py-1.5 border border-input rounded-md text-sm font-medium hover:bg-muted transition-colors"
+          >
+            {/* With zero peer configuration the only destination IS Knowz Cloud, so say so. */}
+            {hasPeerConnections(connections) ? 'Browse a destination' : 'Browse Knowz Cloud'}
+          </button>
+        </div>
       </div>
 
       <p data-testid="sync-caps-helper" className="px-5 pt-3 text-xs text-muted-foreground">
         Manual runs only · up to {ITEMS_PER_RUN} items per run · {RUNS_PER_HOUR} runs per
-        hour on this instance.
+        hour on this instance for legacy inline sync. Complete archive controls below preserve protected graphs and use their declared archive limits.
+      </p>
+
+      <p data-testid="archive-local-key-helper" className="px-5 pt-2 text-xs text-muted-foreground">
+        Complete transfers require a personal API key for your local account. Create one in{' '}
+        <Link to="/settings?tab=api-keys" className="text-primary underline">Settings → API keys</Link>.
+        If you replace that key, review and register each link again. Original vault encryption keys stay on your device.
       </p>
 
       {runBanner && (
@@ -151,7 +192,8 @@ export default function VaultLinksTable({
           <Link2 size={36} className="mx-auto text-muted-foreground mb-3" />
           <p className="text-sm text-muted-foreground">No vault sync links configured.</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Browse Knowz Cloud to connect a vault on this instance to a remote one.
+            Link a vault on this instance to a vault on a destination, then run Pull, Push, or
+            Full when you choose.
           </p>
         </div>
       ) : (
@@ -160,7 +202,7 @@ export default function VaultLinksTable({
             <thead>
               <tr className="border-b border-border/60 bg-muted/20">
                 <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Local Vault</th>
-                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Knowz Cloud Vault</th>
+                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Destination Vault</th>
                 <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Status</th>
                 <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Last Sync</th>
                 <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Actions</th>
@@ -173,11 +215,21 @@ export default function VaultLinksTable({
                 // are unavailable while any run is in flight — only the spinner is
                 // per-row. Without this, a second click just earns a 429.
                 const runsLocked = runMutation.isPending
+                const destination = describeLinkDestination(link, connections)
                 return (
-                  <tr key={link.linkId} className="hover:bg-muted/20 transition-colors">
+                  <Fragment key={link.linkId}><tr className="hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-2.5 font-medium">{link.localVaultName}</td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                      {link.remoteVaultId.slice(0, 8)}…
+                    <td className="px-4 py-2.5">
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {link.remoteVaultId.slice(0, 8)}…
+                      </div>
+                      <div
+                        data-testid="link-destination"
+                        className="text-xs text-foreground/80 mt-0.5"
+                        title={link.platformApiUrl}
+                      >
+                        {destination.label}
+                      </div>
                     </td>
                     <td className="px-4 py-2.5">
                       <StatusBadge status={link.status} enabled={link.syncEnabled} />
@@ -197,6 +249,7 @@ export default function VaultLinksTable({
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
+                        <details open={link.platformConnectionId ? undefined : true}><summary hidden={!link.platformConnectionId}>Legacy plain inline sync</summary>
                         <div className="inline-flex items-stretch rounded border border-input overflow-hidden">
                           <button
                             onClick={() =>
@@ -207,7 +260,7 @@ export default function VaultLinksTable({
                             }
                             disabled={isBusy || runsLocked}
                             className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 border-r border-input"
-                            title="Pull: Knowz Cloud → this instance"
+                            title={`Pull: ${destination.label} → this instance`}
                           >
                             {isBusy && busyDirection === 'PullOnly' ? (
                               <Loader2 size={12} className="animate-spin" />
@@ -225,7 +278,7 @@ export default function VaultLinksTable({
                             }
                             disabled={isBusy || runsLocked}
                             className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 border-r border-input"
-                            title="Push: this instance → Knowz Cloud"
+                            title={`Push: this instance → ${destination.label}`}
                           >
                             {isBusy && busyDirection === 'PushOnly' ? (
                               <Loader2 size={12} className="animate-spin" />
@@ -253,6 +306,7 @@ export default function VaultLinksTable({
                             Full
                           </button>
                         </div>
+                        </details>
                         <button
                           onClick={() => setConfirmDeleteId(link.localVaultId)}
                           disabled={isBusy}
@@ -264,6 +318,10 @@ export default function VaultLinksTable({
                       </div>
                     </td>
                   </tr>
+                  {link.platformConnectionId && <tr><td colSpan={5} className="p-3"><SavedArchivePeerPanel scopeKey={scopeKey} localSourceBaseUrl={localStorage.getItem('apiUrl') || window.location.origin} transport={archiveTransport}
+                    link={{ id: link.linkId, localVaultId: link.localVaultId, remoteVaultId: link.remoteVaultId, destinationBaseUrl: link.platformApiUrl, destinationLabel: destination.label, enabled: link.syncEnabled, directions: ['pull', 'push'] }}
+                    onPreserved={() => { void queryClient.invalidateQueries({ queryKey: ['platform-sync', 'links'] }); }} /></td></tr>}
+                  </Fragment>
                 )
               })}
             </tbody>
@@ -329,7 +387,7 @@ function DeleteLinkConfirmModal({
           <h3 className="text-lg font-semibold">Remove Sync Link?</h3>
         </div>
         <p data-testid="remove-link-body" className="text-sm text-muted-foreground mb-6">
-          The vault on this instance will no longer sync with the Knowz Cloud vault. Local
+          The vault on this instance will no longer sync with its destination vault. Local
           data is not deleted. You can link the vault again later.
         </p>
         <div className="flex justify-end gap-3">
@@ -418,6 +476,25 @@ const BANNER_TONES: Record<'green' | 'amber' | 'red', string> = {
   red: 'bg-red-50 dark:bg-red-950/30 text-red-800 dark:text-red-300 border-red-200 dark:border-red-900',
 }
 
+/**
+ * G7 (#1044) — the orchestrator reports every lane it did not run as a detail line that
+ * starts with one of these phrases (`VaultSyncOrchestrator.PushSkippedDetail`,
+ * `FilesSkippedPartialDetail`, `FilesNotSyncedDirectionDetail`). Those lines answer "why did
+ * my Full run not push / not move files?", so they are promoted out of the collapsed details
+ * list and shown in the banner body where the operator cannot miss them.
+ */
+const SKIP_REASON = /^(Push skipped|Files skipped|Files not synced)\b/
+
+function splitSkipReasons(details: string[]): { skipReasons: string[]; rest: string[] } {
+  const skipReasons: string[] = []
+  const rest: string[] = []
+  for (const detail of details) {
+    if (SKIP_REASON.test(detail)) skipReasons.push(detail)
+    else rest.push(detail)
+  }
+  return { skipReasons, rest }
+}
+
 function RunResultBanner({
   banner,
   onDismiss,
@@ -426,6 +503,8 @@ function RunResultBanner({
   onDismiss: () => void
 }) {
   const isPartial = banner.kind === 'result' && banner.result.partial
+  const { skipReasons, rest: otherDetails } =
+    banner.kind === 'result' ? splitSkipReasons(banner.result.details) : { skipReasons: [], rest: [] }
   const tone: 'green' | 'amber' | 'red' =
     banner.kind === 'error' ? banner.tone : isPartial ? 'amber' : 'green'
   const Icon = tone === 'green' ? CheckCircle2 : tone === 'amber' ? AlertTriangle : XCircle
@@ -449,13 +528,21 @@ function RunResultBanner({
               </p>
             )}
             <p>{formatRunCounts(banner.result)}</p>
-            {banner.result.details.length > 0 && (
+            {skipReasons.length > 0 && (
+              <ul
+                data-testid="sync-run-skip-reasons"
+                className="text-xs space-y-0.5 list-disc list-inside"
+              >
+                {skipReasons.map((reason, i) => (
+                  <li key={`${i}-${reason}`}>{reason}</li>
+                ))}
+              </ul>
+            )}
+            {otherDetails.length > 0 && (
               <details className="text-xs">
-                <summary className="cursor-pointer">
-                  Details ({banner.result.details.length})
-                </summary>
+                <summary className="cursor-pointer">Details ({otherDetails.length})</summary>
                 <ul className="mt-1 space-y-0.5 list-disc list-inside">
-                  {banner.result.details.map((detail, i) => (
+                  {otherDetails.map((detail, i) => (
                     <li key={`${i}-${detail}`}>{detail}</li>
                   ))}
                 </ul>

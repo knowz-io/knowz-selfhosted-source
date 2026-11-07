@@ -3,7 +3,7 @@
 #
 # Contract (DOC_SelfHostedLimitedEditionContract VERIFY-D3/D4/D6):
 #   advertised = every [McpServerTool] name in src/Knowz.MCP/Tools/KnowzProxyTools.cs
-#                minus the frozen self-hosted hidden set below.
+#                minus the frozen runtime SelfHostedToolVisibility.HiddenTools set.
 # The prose count in the README must equal the number of advertised rows.
 # Exit 0 on exact match; non-zero with the symmetric difference printed otherwise.
 set -uo pipefail
@@ -11,32 +11,25 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS_SRC="$ROOT/src/Knowz.MCP/Tools/KnowzProxyTools.cs"
 README="$ROOT/README.md"
-EXPECTED_DECLARED_COUNT=36
-
-# Frozen hidden set — tools the self-hosted API cannot serve (graph + todos + document
-# windowing + async amend). Kept in lockstep with MCP_SelfHostedToolContract's hidden-set
-# constant; if the two ever disagree, the runtime coverage test wins and the doc is wrong.
-HIDDEN=(
-  graph_query
-  list_todos
-  get_todo_summary
-  create_todo
-  update_todo_status
-  inspect_document_map
-  get_document_window
-  search_document_text
-  amend_knowledge_async
-  get_amend_request_status
-)
+VISIBILITY_SRC="$ROOT/src/Knowz.MCP/Config/SelfHostedToolVisibility.cs"
+EXPECTED_DECLARED_COUNT=40
+EXPECTED_HIDDEN_COUNT=14
 
 fail=0
 err() { echo "FAIL: $*" >&2; fail=1; }
 
 [ -f "$TOOLS_SRC" ] || { echo "FAIL: missing $TOOLS_SRC" >&2; exit 2; }
 [ -f "$README" ]    || { echo "FAIL: missing $README" >&2; exit 2; }
+[ -f "$VISIBILITY_SRC" ] || { echo "FAIL: missing $VISIBILITY_SRC" >&2; exit 2; }
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+
+# Derive the exact frozen runtime set instead of maintaining another name list.
+awk '/public static readonly.*HiddenTools/{on=1;next} on&&/^[[:space:]]*};/{exit} on' "$VISIBILITY_SRC" \
+  | grep -oE '"[a-z0-9_]+"' | tr -d '"' | sort -u > "$tmp/hidden"
+HIDDEN=()
+while IFS= read -r name; do HIDDEN+=("$name"); done < "$tmp/hidden"
 
 # 1. Derive the declared tool set from source.
 grep -oE '\[McpServerTool[^]]*Name[[:space:]]*=[[:space:]]*"[a-z0-9_]+"' "$TOOLS_SRC" \
@@ -49,9 +42,9 @@ if [ "$declared_count" -ne "$EXPECTED_DECLARED_COUNT" ]; then
   echo "      hidden set if the new tool cannot run self-hosted, then bump EXPECTED_DECLARED_COUNT." >&2
 fi
 
-# 2. Hidden set must be exactly the 10 frozen names and every one must exist in source.
-if [ "${#HIDDEN[@]}" -ne 10 ]; then
-  err "hidden set has ${#HIDDEN[@]} entries, expected the 10 frozen names."
+# 2. Hidden set must match the reviewed contract count and every name must exist in source.
+if [ "${#HIDDEN[@]}" -ne "$EXPECTED_HIDDEN_COUNT" ]; then
+  err "hidden set has ${#HIDDEN[@]} entries, expected $EXPECTED_HIDDEN_COUNT reviewed names."
 fi
 printf '%s\n' "${HIDDEN[@]}" | sort -u > "$tmp/hidden"
 while read -r h; do

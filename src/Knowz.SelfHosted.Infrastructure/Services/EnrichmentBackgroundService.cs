@@ -121,7 +121,7 @@ public class EnrichmentBackgroundService : BackgroundService
 
             // Load outbox item
             var outboxItem = await db.EnrichmentOutbox
-                .FirstOrDefaultAsync(e => e.KnowledgeId == workItem.KnowledgeId &&
+                .FirstOrDefaultAsync(e => e.TenantId == workItem.TenantId && e.KnowledgeId == workItem.KnowledgeId &&
                     (e.Status == EnrichmentStatus.Pending || e.Status == EnrichmentStatus.Processing), ct);
 
             // SH_ENTERPRISE_RUNTIME_RESILIENCE §Rule 4: increment attempts counter
@@ -153,6 +153,8 @@ public class EnrichmentBackgroundService : BackgroundService
 
             if (knowledge == null)
             {
+                if (await PortableProcessingPolicy.IsProtectedAsync(db, workItem.KnowledgeId, ct))
+                    await PortableProcessingPolicy.DiscardStaleIndexAsync(db, workItem.KnowledgeId, searchService, ct);
                 _logger.LogWarning("Knowledge {Id} not found for enrichment", workItem.KnowledgeId);
                 if (outboxItem != null)
                 {
@@ -164,8 +166,15 @@ public class EnrichmentBackgroundService : BackgroundService
                 return;
             }
 
+            async Task RequireProcessableAsync()
+            {
+                if (!await PortableProcessingPolicy.CanProcessAsync(db, knowledge.Id, workItem.TenantId, ct))
+                    throw new ProtectedKnowledgeProcessingException();
+            }
+
             try
             {
+                await RequireProcessableAsync();
                 // 1. Title generation (if placeholder)
                 if (IsPlaceholderTitle(knowledge.Title, knowledge.Content))
                 {
@@ -229,6 +238,7 @@ public class EnrichmentBackgroundService : BackgroundService
                 };
 
                 // Use concrete TextEnrichmentService overload if available (for createdAt/authorName)
+                await RequireProcessableAsync();
                 if (enrichmentService is TextEnrichmentService concreteService)
                 {
                     var summary = await concreteService.SummarizeAsync(
@@ -251,6 +261,7 @@ public class EnrichmentBackgroundService : BackgroundService
                 }
 
                 // 3.5. Generate BriefSummary
+                await RequireProcessableAsync();
                 try
                 {
                     var briefSummary = await enrichmentService.GenerateBriefSummaryAsync(contentForEnrichment, ct, workItem.TenantId);
@@ -264,7 +275,9 @@ public class EnrichmentBackgroundService : BackgroundService
                 }
 
                 // 4. Extract tags (with attachment context)
+                await RequireProcessableAsync();
                 var tags = await enrichmentService.ExtractTagsAsync(knowledge.Title, contentForEnrichment, 5, ct, workItem.TenantId);
+                await RequireProcessableAsync();
                 if (tags.Count > 0)
                 {
                     await LinkTagsAsync(db, knowledge, tags, workItem.TenantId, ct);
@@ -285,6 +298,7 @@ public class EnrichmentBackgroundService : BackgroundService
                 }
 
                 // Mark completed
+                await RequireProcessableAsync();
                 if (outboxItem != null)
                 {
                     outboxItem.Status = EnrichmentStatus.Completed;
@@ -298,6 +312,22 @@ public class EnrichmentBackgroundService : BackgroundService
                 }
 
                 _logger.LogInformation("Enrichment completed for knowledge {Id}", knowledge.Id);
+            }
+            catch (ProtectedKnowledgeProcessingException)
+            {
+                // Discard outputs computed before a concurrent protection transition.
+                db.Entry(knowledge).State = EntityState.Unchanged;
+                var cleanupFailed = false;
+                try { await PortableProcessingPolicy.DiscardStaleIndexAsync(db, knowledge.Id, searchService, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                { cleanupFailed = true; _logger.LogWarning("Protected index cleanup could not finish for knowledge {Id}; deletion will be retried. ErrorType={ErrorType}", knowledge.Id, ex.GetType().Name); }
+                if (outboxItem != null)
+                {
+                    outboxItem.Status = cleanupFailed ? EnrichmentStatus.Pending : EnrichmentStatus.Failed; outboxItem.ErrorMessage = PortableProcessingPolicy.BlockedMessage;
+                    outboxItem.NextRetryAt = cleanupFailed ? DateTime.UtcNow.AddMinutes(1) : null; outboxItem.ProcessedAt = cleanupFailed ? null : DateTime.UtcNow;
+                    if (activity != null) { activity.Status = EnrichmentStatus.Failed; activity.FinishedAt = DateTime.UtcNow; activity.ErrorMessage = PortableProcessingPolicy.BlockedMessage; }
+                    await db.SaveChangesAsync(ct);
+                }
             }
             catch (Exception ex)
             {
@@ -558,6 +588,17 @@ public class EnrichmentBackgroundService : BackgroundService
         ISelfHostedChunkingService chunkingService, ITextEnrichmentService enrichmentService,
         CancellationToken ct)
     {
+        if (!await PortableProcessingPolicy.CanProcessAsync(db, knowledge.Id, knowledge.TenantId, ct))
+        {
+            db.Entry(knowledge).State = EntityState.Unchanged;
+            await PortableProcessingPolicy.DiscardStaleIndexAsync(db, knowledge.Id, searchService, ct);
+            return;
+        }
+        async Task RequireProcessableAsync()
+        {
+            if (!await PortableProcessingPolicy.CanProcessAsync(db, knowledge.Id, knowledge.TenantId, ct))
+            { db.Entry(knowledge).State = EntityState.Unchanged; throw new ProtectedKnowledgeProcessingException(); }
+        }
         var primaryKv = await db.KnowledgeVaults
             .Include(kv => kv.Vault)
             .Where(kv => kv.KnowledgeId == knowledge.Id)
@@ -622,11 +663,12 @@ public class EnrichmentBackgroundService : BackgroundService
         IList<string?> chunkContexts;
         try
         {
+            await RequireProcessableAsync();
             var chunkTuples = chunks.Select(c => (c.Content, c.Position)).ToList();
             chunkContexts = await enrichmentService.GenerateChunkContextsAsync(
                 knowledge.Title, knowledge.Summary, chunkTuples, ct);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not ProtectedKnowledgeProcessingException && ex is not OperationCanceledException)
         {
             // Non-blocking: proceed without contextual retrieval
             chunkContexts = new string?[chunks.Count];
@@ -647,6 +689,7 @@ public class EnrichmentBackgroundService : BackgroundService
 
         for (int i = 0; i < chunks.Count; i++)
         {
+            await RequireProcessableAsync();
             var chunk = chunks[i];
             var hash = newHashes[i];
             var contextSummary = i < chunkContexts.Count ? chunkContexts[i] : null;
@@ -690,6 +733,7 @@ public class EnrichmentBackgroundService : BackgroundService
             // FEAT_SelfHostedTemporalAwareness: thread the entity's real
             // dates so re-index operations don't overwrite the index
             // createdAt with the re-index time.
+            await RequireProcessableAsync();
             await searchService.IndexDocumentAsync(
                 knowledge.Id, knowledge.Title, chunk.Content, knowledge.Summary,
                 vaultName, vaultId, ancestorVaultIds, topicName,
@@ -702,6 +746,7 @@ public class EnrichmentBackgroundService : BackgroundService
         }
 
         // Replace persisted chunks with contextual data
+        await RequireProcessableAsync();
         try
         {
             db.ContentChunks.RemoveRange(existingChunks);

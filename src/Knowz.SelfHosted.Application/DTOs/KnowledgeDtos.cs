@@ -16,7 +16,11 @@ public record KnowledgeItemResponse(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     bool IsIndexed,
-    DateTime? IndexedAt);
+    DateTime? IndexedAt,
+    bool IsEncrypted = false,
+    bool HasEncryptedAttachments = false,
+    string? PortableRecoveryState = null,
+    bool HasEncryptedFields = false);
 
 public record KnowledgeListItem(
     Guid Id,
@@ -30,7 +34,9 @@ public record KnowledgeListItem(
     string? CreatedByUserName,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    bool IsIndexed);
+    bool IsIndexed,
+    bool IsEncrypted = false,
+    string? PortableRecoveryState = null);
 
 public record CreatorRef(Guid Id, string Name);
 

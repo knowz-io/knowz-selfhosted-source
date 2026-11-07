@@ -40,6 +40,7 @@ public class VaultScopedExportService
         Guid localVaultId, Guid localKnowledgeId, CancellationToken ct = default)
     {
         var tenantId = _tenantProvider.TenantId;
+        if (await SelfHostedInlineSyncPolicy.IsProtectedVaultAsync(_db, tenantId, localVaultId, ct)) throw new ArchiveOperationException(409, SelfHostedInlineSyncPolicy.Message);
         var serverTimestamp = DateTime.UtcNow;
 
         var isInVault = await _db.KnowledgeVaults
@@ -155,6 +156,7 @@ public class VaultScopedExportService
         CancellationToken ct = default)
     {
         var tenantId = _tenantProvider.TenantId;
+        if (await SelfHostedInlineSyncPolicy.IsProtectedVaultAsync(_db, tenantId, localVaultId, ct)) throw new ArchiveOperationException(409, SelfHostedInlineSyncPolicy.Message);
         var serverTimestamp = DateTime.UtcNow;
         var isIncremental = since.HasValue;
 

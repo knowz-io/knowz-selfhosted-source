@@ -19,7 +19,11 @@ public interface IOAuthService
 
     AuthorizationRequest? GetAuthorizationRequest(string requestId);
 
-    string CompleteAuthorization(string requestId, string apiKey);
+    /// <param name="claims">
+    /// OIDC claims for the user who just authenticated, when the login path knows them.
+    /// Carried onto the authorization code, the access token and every rotated refresh token.
+    /// </param>
+    string CompleteAuthorization(string requestId, string apiKey, OidcUserClaims? claims = null);
 
     TokenResult? ExchangeCode(string code, string codeVerifier, string redirectUri);
 
@@ -29,7 +33,7 @@ public interface IOAuthService
     /// Creates a refresh token mapped to the given API key and scope.
     /// Stored in Redis with 30-day TTL.
     /// </summary>
-    string CreateRefreshToken(string apiKey, string scope);
+    string CreateRefreshToken(string apiKey, string scope, OidcUserClaims? claims = null);
 
     /// <summary>
     /// Exchanges a refresh token for a new access token and rotated refresh token.
@@ -42,13 +46,25 @@ public interface IOAuthService
     /// MCP session store. Every OAuth grant returns one of these instead of the raw
     /// API key; McpAuthMiddleware resolves it back on subsequent requests.
     /// </summary>
-    string IssueOpaqueAccessToken(string apiKey);
+    string IssueOpaqueAccessToken(string apiKey, OidcUserClaims? claims = null);
 
     /// <summary>
     /// Real lifetime (seconds) of opaque access tokens — the session store's
     /// sliding timeout. Reported as expires_in on token responses.
     /// </summary>
     int AccessTokenExpirySeconds { get; }
+
+    /// <summary>
+    /// Returns the OIDC claims stored against an opaque access token, or null when the token
+    /// is unknown/revoked or was issued without claims. Served by GET /oauth/userinfo.
+    /// </summary>
+    OidcUserClaims? TryGetUserInfo(string accessToken);
+
+    /// <summary>
+    /// Attaches claims to an already-issued access token (userinfo's best-effort fill for
+    /// tokens minted without claims). No-op when the token no longer resolves.
+    /// </summary>
+    void StoreUserInfo(string accessToken, OidcUserClaims claims);
 }
 
 public class OAuthService : IOAuthService
@@ -73,10 +89,12 @@ public class OAuthService : IOAuthService
     private readonly ConcurrentDictionary<string, AuthorizationRequest> _fallbackRequests = new();
     private readonly ConcurrentDictionary<string, AuthorizationCode> _fallbackCodes = new();
     private readonly ConcurrentDictionary<string, RefreshTokenData> _fallbackRefreshTokens = new();
+    private readonly ConcurrentDictionary<string, StoredUserInfo> _fallbackUserInfo = new();
 
     private const string PendingRequestPrefix = "oauth:req:";
     private const string AuthCodePrefix = "oauth:code:";
     private const string RefreshTokenPrefix = "oauth:refresh:";
+    private const string UserInfoPrefix = "oauth:userinfo:";
     private static readonly TimeSpan RefreshTokenTtl = TimeSpan.FromDays(90);
 
     public OAuthService(IDistributedCache cache, IMcpSessionStore sessionStore, ILogger<OAuthService> logger)
@@ -88,11 +106,67 @@ public class OAuthService : IOAuthService
 
     public int AccessTokenExpirySeconds => (int)_sessionStore.SessionTimeout.TotalSeconds;
 
-    public string IssueOpaqueAccessToken(string apiKey)
+    public string IssueOpaqueAccessToken(string apiKey, OidcUserClaims? claims = null)
     {
         var token = GenerateSecureCode();
         _sessionStore.StoreApiKey(token, apiKey);
+        if (claims != null)
+            StoreUserInfo(token, claims);
         return token;
+    }
+
+    public OidcUserClaims? TryGetUserInfo(string accessToken)
+    {
+        // The session store is the source of truth for token validity — claims for a
+        // revoked or expired token must not outlive it.
+        if (string.IsNullOrWhiteSpace(accessToken) ||
+            string.IsNullOrWhiteSpace(_sessionStore.GetApiKey(accessToken)))
+            return null;
+
+        var key = UserInfoKey(accessToken);
+
+        try
+        {
+            // GetString refreshes the sliding expiration, keeping claims alive as long as the token.
+            var json = _cache.GetString(key);
+            if (json != null)
+                return JsonSerializer.Deserialize<OidcUserClaims>(json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Redis unavailable during TryGetUserInfo, checking fallback");
+        }
+
+        if (_fallbackUserInfo.TryGetValue(key, out var fallback))
+        {
+            fallback.LastActivity = DateTime.UtcNow;
+            return fallback.Claims;
+        }
+
+        return null;
+    }
+
+    public void StoreUserInfo(string accessToken, OidcUserClaims claims)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken) ||
+            string.IsNullOrWhiteSpace(_sessionStore.GetApiKey(accessToken)))
+            return;
+
+        var key = UserInfoKey(accessToken);
+
+        try
+        {
+            _cache.SetString(key, JsonSerializer.Serialize(claims),
+                new DistributedCacheEntryOptions
+                {
+                    SlidingExpiration = _sessionStore.SessionTimeout
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Redis unavailable, storing userinfo claims in memory");
+            _fallbackUserInfo[key] = new StoredUserInfo { Claims = claims, LastActivity = DateTime.UtcNow };
+        }
     }
 
     public AuthorizationRequest CreateAuthorizationRequest(
@@ -164,7 +238,7 @@ public class OAuthService : IOAuthService
         return null;
     }
 
-    public string CompleteAuthorization(string requestId, string apiKey)
+    public string CompleteAuthorization(string requestId, string apiKey, OidcUserClaims? claims = null)
     {
         AuthorizationRequest? request = null;
 
@@ -200,6 +274,7 @@ public class OAuthService : IOAuthService
             CodeChallenge = request.CodeChallenge,
             CodeChallengeMethod = request.CodeChallengeMethod,
             ApiKey = apiKey,
+            Claims = claims,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddMinutes(5)
         };
@@ -273,11 +348,11 @@ public class OAuthService : IOAuthService
         _logger.LogInformation("Successfully exchanged authorization code for client {ClientId}",
             authCode.ClientId);
 
-        var refreshToken = CreateRefreshToken(authCode.ApiKey, authCode.Scope);
+        var refreshToken = CreateRefreshToken(authCode.ApiKey, authCode.Scope, authCode.Claims);
 
         return new TokenResult
         {
-            AccessToken = IssueOpaqueAccessToken(authCode.ApiKey),
+            AccessToken = IssueOpaqueAccessToken(authCode.ApiKey, authCode.Claims),
             TokenType = "Bearer",
             ExpiresIn = AccessTokenExpirySeconds,
             Scope = authCode.Scope,
@@ -285,13 +360,14 @@ public class OAuthService : IOAuthService
         };
     }
 
-    public string CreateRefreshToken(string apiKey, string scope)
+    public string CreateRefreshToken(string apiKey, string scope, OidcUserClaims? claims = null)
     {
         var token = GenerateSecureCode();
         var data = new RefreshTokenData
         {
             ApiKey = apiKey,
             Scope = scope,
+            Claims = claims,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.Add(RefreshTokenTtl)
         };
@@ -353,13 +429,13 @@ public class OAuthService : IOAuthService
         }
 
         // Rotate: create a new refresh token
-        var newRefreshToken = CreateRefreshToken(data.ApiKey, data.Scope);
+        var newRefreshToken = CreateRefreshToken(data.ApiKey, data.Scope, data.Claims);
 
         _logger.LogInformation("Successfully refreshed token");
 
         return new TokenResult
         {
-            AccessToken = IssueOpaqueAccessToken(data.ApiKey),
+            AccessToken = IssueOpaqueAccessToken(data.ApiKey, data.Claims),
             TokenType = "Bearer",
             ExpiresIn = AccessTokenExpirySeconds,
             Scope = data.Scope,
@@ -389,6 +465,27 @@ public class OAuthService : IOAuthService
             if (kvp.Value.ExpiresAt < now)
                 _fallbackRefreshTokens.TryRemove(kvp.Key, out _);
         }
+
+        // Same sliding window as the session store entry the claims belong to.
+        var userInfoCutoff = now - _sessionStore.SessionTimeout;
+        foreach (var kvp in _fallbackUserInfo)
+        {
+            if (kvp.Value.LastActivity < userInfoCutoff)
+                _fallbackUserInfo.TryRemove(kvp.Key, out _);
+        }
+    }
+
+    /// <summary>
+    /// Claims are keyed by a hash of the bearer credential so no token (or raw API key
+    /// presented as a Bearer) ever appears in a Redis key name.
+    /// </summary>
+    private static string UserInfoKey(string accessToken) =>
+        UserInfoPrefix + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(accessToken))).ToLowerInvariant();
+
+    private sealed class StoredUserInfo
+    {
+        public required OidcUserClaims Claims { get; init; }
+        public DateTime LastActivity { get; set; }
     }
 
     private static string GenerateSecureCode()
@@ -442,6 +539,7 @@ public class AuthorizationCode
     public required string CodeChallenge { get; init; }
     public required string CodeChallengeMethod { get; init; }
     public required string ApiKey { get; init; }
+    public OidcUserClaims? Claims { get; init; }
     public required DateTime CreatedAt { get; init; }
     public required DateTime ExpiresAt { get; init; }
 }
@@ -450,6 +548,9 @@ public class RefreshTokenData
 {
     public required string ApiKey { get; init; }
     public required string Scope { get; init; }
+
+    /// <summary>Optional so refresh tokens issued before OIDC claims existed still deserialize.</summary>
+    public OidcUserClaims? Claims { get; init; }
     public required DateTime CreatedAt { get; init; }
     public required DateTime ExpiresAt { get; init; }
 }
@@ -461,4 +562,24 @@ public class TokenResult
     public required int ExpiresIn { get; init; }
     public required string Scope { get; init; }
     public string? RefreshToken { get; init; }
+}
+
+/// <summary>
+/// OIDC standard claims returned by GET /oauth/userinfo. Captured at login and carried on the
+/// authorization code, access token and refresh token (access tokens are opaque — there is no
+/// ID token to carry them).
+/// </summary>
+public class OidcUserClaims
+{
+    /// <summary>Stable, non-PII subject: the Knowz user id when known, else <see cref="SubjectFromApiKey"/>.</summary>
+    public required string Sub { get; init; }
+    public string? Email { get; init; }
+    public bool EmailVerified { get; init; }
+
+    /// <summary>
+    /// Stable subject for logins that do not reveal a user id (API key login). Derived from,
+    /// but not reversible to, the API key — the raw key must never be used as a subject.
+    /// </summary>
+    public static string SubjectFromApiKey(string apiKey) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("knowz-mcp|" + apiKey)))[..32].ToLowerInvariant();
 }

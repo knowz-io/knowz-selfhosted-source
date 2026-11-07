@@ -1,4 +1,8 @@
 export interface KnowledgeItem {
+  portableRecoveryState?: 'source-provider-required' | 'suspended-release' | null
+  hasEncryptedFields?: boolean
+  hasEncryptedAttachments?: boolean
+  isEncrypted?: boolean
   id: string
   title: string
   content: string
@@ -697,6 +701,8 @@ export type PlatformConnectionTestStatus =
   | 'SchemaIncompatible'
 
 export interface PlatformConnectionDto {
+  /** Connection id — additive (ADR_G6, #1043). Optional until every backend in the field returns it. */
+  id?: string
   platformApiUrl: string
   displayName: string | null
   hasApiKey: boolean
@@ -790,12 +796,30 @@ export interface VaultSyncStatusDto {
   localVaultName: string
   remoteVaultId: string
   platformApiUrl: string
+  /**
+   * UI_SH_PeerDestination (ADR_G6, #1043) — the stored connection this link is bound to.
+   * Optional/nullable: absent on older backends and on legacy rows still using the
+   * per-link URL columns, in which case the UI matches the destination by URL.
+   */
+  platformConnectionId?: string | null
   status: string
   lastSyncError: string | null
   lastSyncCompletedAt: string | null
   lastPullCursor: string | null
   lastPushCursor: string | null
   syncEnabled: boolean
+}
+
+/**
+ * UI_SH_PeerDestination — body of `POST /api/v1/sync/links`. Mirrors
+ * `Knowz.SelfHosted.Application.DTOs.EstablishSyncLinkRequest`. With `platformConnectionId`
+ * set the server binds the link to that stored connection and ignores the legacy
+ * URL/key fields, so the UI never re-sends a key.
+ */
+export interface EstablishSyncLinkRequest {
+  localVaultId: string
+  remoteVaultId: string
+  platformConnectionId?: string | null
 }
 
 /**

@@ -1,0 +1,247 @@
+{
+  "sourceEdition": "selfhosted",
+  "sourceTenantId": "11111111-1111-4111-8111-000000000090",
+  "exportedAt": "2026-10-06T00:00:00Z",
+  "schemaVersion": 5,
+  "requiredCapabilities": [
+    "knowz.encrypted-graph/v1"
+  ],
+  "preservationState": "complete",
+  "omissions": [],
+  "data": {
+    "vaults": [
+      {
+        "id": "11111111-1111-4111-8111-000000000002",
+        "name": "Original encryption vault",
+        "slug": "original-encryption-vault",
+        "createdAt": "2026-10-06T00:00:00Z",
+        "updatedAt": "2026-10-06T00:00:00Z"
+      }
+    ],
+    "knowledgeItems": [
+      {
+        "id": "11111111-1111-4111-8111-000000000008",
+        "title": "Plain note",
+        "content": "plain content",
+        "type": "note",
+        "vaultIds": [
+          "11111111-1111-4111-8111-000000000002"
+        ],
+        "createdAt": "2026-10-06T00:00:00Z",
+        "updatedAt": "2026-10-06T00:00:00Z"
+      }
+    ],
+    "comments": [],
+    "fileRecords": [],
+    "inboxItems": []
+  },
+  "cryptoContexts": [
+    {
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "originalBindingId": "11111111-1111-4111-8111-000000000002",
+      "bindingKind": "vault",
+      "algorithmProfile": "x25519-vault"
+    }
+  ],
+  "vaultCryptoContextLinks": [
+    {
+      "vaultId": "11111111-1111-4111-8111-000000000002",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "isPrimaryWriteContext": true,
+      "primaryWriteFingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041"
+    }
+  ],
+  "cryptoKeyCatalog": [
+    {
+      "keyType": "x25519",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "publicKey": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw=",
+      "fingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041",
+      "generation": 1,
+      "lifecycle": "active"
+    }
+  ],
+  "payloadKeyReferences": [
+    {
+      "ownerKind": "knowledge",
+      "ownerId": "11111111-1111-4111-8111-000000000003",
+      "role": "body",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "generation": 1,
+      "fingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041",
+      "originalBindingKind": "vault",
+      "originalBindingId": "11111111-1111-4111-8111-000000000002",
+      "keyType": "x25519-vault-public",
+      "algorithmProfile": "x25519-vault",
+      "envelopeVersion": 2
+    },
+    {
+      "ownerKind": "knowledge",
+      "ownerId": "11111111-1111-4111-8111-000000000003",
+      "role": "field",
+      "fieldName": "title",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "generation": 1,
+      "fingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041",
+      "originalBindingKind": "vault",
+      "originalBindingId": "11111111-1111-4111-8111-000000000002",
+      "keyType": "x25519-vault-public",
+      "algorithmProfile": "x25519-vault",
+      "envelopeVersion": 1
+    },
+    {
+      "ownerKind": "comment",
+      "ownerId": "11111111-1111-4111-8111-000000000004",
+      "role": "field",
+      "fieldName": "content",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "generation": 1,
+      "fingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041",
+      "originalBindingKind": "vault",
+      "originalBindingId": "11111111-1111-4111-8111-000000000002",
+      "keyType": "x25519-vault-public",
+      "algorithmProfile": "x25519-vault",
+      "envelopeVersion": 1
+    },
+    {
+      "ownerKind": "file",
+      "ownerId": "11111111-1111-4111-8111-000000000005",
+      "role": "binary",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "generation": 1,
+      "fingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041",
+      "originalBindingKind": "vault",
+      "originalBindingId": "11111111-1111-4111-8111-000000000002",
+      "keyType": "x25519-vault-public",
+      "algorithmProfile": "x25519-vault",
+      "envelopeVersion": 2
+    },
+    {
+      "ownerKind": "file",
+      "ownerId": "11111111-1111-4111-8111-000000000005",
+      "role": "field",
+      "fieldName": "fileName",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "generation": 1,
+      "fingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041",
+      "originalBindingKind": "vault",
+      "originalBindingId": "11111111-1111-4111-8111-000000000002",
+      "keyType": "x25519-vault-public",
+      "algorithmProfile": "x25519-vault",
+      "envelopeVersion": 1
+    },
+    {
+      "ownerKind": "attachment",
+      "ownerId": "11111111-1111-4111-8111-000000000006",
+      "role": "field",
+      "fieldName": "description",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "generation": 1,
+      "fingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041",
+      "originalBindingKind": "vault",
+      "originalBindingId": "11111111-1111-4111-8111-000000000002",
+      "keyType": "x25519-vault-public",
+      "algorithmProfile": "x25519-vault",
+      "envelopeVersion": 1
+    },
+    {
+      "ownerKind": "version",
+      "ownerId": "11111111-1111-4111-8111-000000000007",
+      "role": "body",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "generation": 1,
+      "versionId": "11111111-1111-4111-8111-000000000007",
+      "fingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041",
+      "originalBindingKind": "vault",
+      "originalBindingId": "11111111-1111-4111-8111-000000000002",
+      "keyType": "x25519-vault-public",
+      "algorithmProfile": "x25519-vault",
+      "envelopeVersion": 2
+    },
+    {
+      "ownerKind": "version",
+      "ownerId": "11111111-1111-4111-8111-000000000007",
+      "role": "field",
+      "fieldName": "title",
+      "contextId": "11111111-1111-4111-8111-000000000001",
+      "generation": 1,
+      "versionId": "11111111-1111-4111-8111-000000000007",
+      "fingerprint": "aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041",
+      "originalBindingKind": "vault",
+      "originalBindingId": "11111111-1111-4111-8111-000000000002",
+      "keyType": "x25519-vault-public",
+      "algorithmProfile": "x25519-vault",
+      "envelopeVersion": 1
+    }
+  ],
+  "sealedItems": [
+    {
+      "id": "11111111-1111-4111-8111-000000000003",
+      "vaultIds": [
+        "11111111-1111-4111-8111-000000000002"
+      ],
+      "primaryVaultId": "11111111-1111-4111-8111-000000000002",
+      "type": "note",
+      "createdAt": "2026-10-06T00:00:00Z",
+      "updatedAt": "2026-10-06T00:00:00Z",
+      "originalItemId": "11111111-1111-4111-8111-000000000003",
+      "ephemeralPublicKey": "5tEel6HwmJoeFoV/E6X+UxnfWZCW54+HU7pO1F5CG1E=",
+      "encryptedDek": "JaiWUm1oNJTE4zq52khZ4eqGvyPWrKuDk9L0soJyQar7gc8j8lYl2jXsLAdP6kfF",
+      "dekNonce": "DAg/0825MRG16FcX",
+      "contentNonce": "00s409OhgQz9iA7y",
+      "ciphertext": "e13SBmjJSdeiTW4dqgtIvj+WJJBKmhMVDe2oAwyZ",
+      "encryptedDekNonce": "DAg/0825MRG16FcX",
+      "envelopeVersion": 2,
+      "cryptoBindingId": "11111111-1111-4111-8111-000000000002",
+      "encryptedFieldsJson": "{\"schema\":\"knowz-encrypted-fields-v1\",\"fields\":{\"title\":{\"ephemeralPublicKey\":\"0AyuCgZHIxt5oZTgsLgmkd90UM/p6qDdFKTR7RfPDnc=\",\"encryptedDek\":\"m3M312LbKViJNFv8WtWF8OFc3KaWH+O6eXdHg3KnfqyA00hKmwAmW4Cn0gjC3rX0\",\"dekNonce\":\"R+sKVeWc08n+hi6e\",\"contentNonce\":\"EhdetZBU1qoCCa2n\",\"ciphertext\":\"qH2H1VHW76jtjuc6nX9VEGXe7XvkDIzvp9NJXu7w9A==\",\"keyFingerprint\":\"aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041\"}}}"
+    }
+  ],
+  "sealedComments": [
+    {
+      "id": "11111111-1111-4111-8111-000000000004",
+      "originalCommentId": "11111111-1111-4111-8111-000000000004",
+      "originalKnowledgeId": "11111111-1111-4111-8111-000000000003",
+      "cryptoBindingId": "11111111-1111-4111-8111-000000000002",
+      "knowledgeId": "11111111-1111-4111-8111-000000000003",
+      "ciphertext": "",
+      "encryptedFieldsJson": "{\"schema\":\"knowz-encrypted-fields-v1\",\"fields\":{\"content\":{\"ephemeralPublicKey\":\"pfQS+Jvbeg5wAMW+o96bMqy4RYFFze7HldgKKoc1AkE=\",\"encryptedDek\":\"nKvt9DOzSegzTozxWGvg9dzxG/nHuSaeRYuoFGtgHt6C1JIJAJRITcg5hm7LQKEc\",\"dekNonce\":\"TKeXm/jYzu3jbTQC\",\"contentNonce\":\"xL4i1bpCTo3p3PZC\",\"ciphertext\":\"PAwV8oO4tRKiD2VV0h817EtByjdf/6+KEL4KSPwvLQ==\",\"keyFingerprint\":\"aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041\"}}}"
+    }
+  ],
+  "sealedFiles": [
+    {
+      "id": "11111111-1111-4111-8111-000000000005",
+      "sizeBytes": 27,
+      "contentType": "application/octet-stream",
+      "knowledgeId": "11111111-1111-4111-8111-000000000003",
+      "originalFileId": "11111111-1111-4111-8111-000000000005",
+      "ephemeralPublicKey": "QLDPseLE08T2YHq+BpvqZk/my5SVOU19qlgfWy+kGXg=",
+      "encryptedDek": "xX8qm/Bdx+G1JKSEk0h8c1omL/yC70BTw8j0MEswW2Yq0ECYIza/+zL1mS0HB1HO",
+      "dekNonce": "BpOOBIcTOwc33eLT",
+      "contentNonce": "AQpZtQYSWDIJ1v/E",
+      "encryptedDekNonce": "BpOOBIcTOwc33eLT",
+      "envelopeVersion": 2,
+      "cryptoBindingId": "11111111-1111-4111-8111-000000000002",
+      "binaryContentBase64": "ZJVQlkpDHFpULGfQOPLrMgoI1f6dsWw8yio3",
+      "encryptedFieldsJson": "{\"schema\":\"knowz-encrypted-fields-v1\",\"fields\":{\"fileName\":{\"ephemeralPublicKey\":\"8yXIQA6BctxR0TjTig4LK14b4TwRGd899ecWp6KMB1I=\",\"encryptedDek\":\"42cmZT3Ug8jvtxLFeX0XnB8ecnRSvuSgsD8+Abwm+wtTTUSFOBMlX7idCtOcRzT4\",\"dekNonce\":\"AqT01iCDUw9g8zHj\",\"contentNonce\":\"9CAKB5RiEMWWM4r7\",\"ciphertext\":\"HnJ/4diAg1KVWaUL009FouYLSSUpG4ImztIy7Xk=\",\"keyFingerprint\":\"aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041\"}}}"
+    }
+  ],
+  "sealedAttachments": [
+    {
+      "id": "11111111-1111-4111-8111-000000000006",
+      "originalAttachmentId": "11111111-1111-4111-8111-000000000006",
+      "fileRecordId": "11111111-1111-4111-8111-000000000005",
+      "knowledgeId": "11111111-1111-4111-8111-000000000003",
+      "encryptedFieldsJson": "{\"schema\":\"knowz-encrypted-fields-v1\",\"fields\":{\"description\":{\"ephemeralPublicKey\":\"1Py3BhP1pzD7YO5kkGddmVH6gt/MXtQsbfTr3sd+uys=\",\"encryptedDek\":\"K+MszQp1xiQ6xiV68jzrBP1DdXJ80kbuYzat1vHquFSLpgL3zFeqj3hZM0OOD+Yx\",\"dekNonce\":\"dhY+PcwIjxGmsCJF\",\"contentNonce\":\"2rmIQ4wgDRLKmAdV\",\"ciphertext\":\"kSXLN1TisAm5xvgBV0KLJUDuhvqTAapayNIunqq8mPiLYyG9wPc=\",\"keyFingerprint\":\"aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041\"}}}"
+    }
+  ],
+  "sealedVersions": [
+    {
+      "id": "11111111-1111-4111-8111-000000000007",
+      "originalKnowledgeId": "11111111-1111-4111-8111-000000000003",
+      "knowledgeId": "11111111-1111-4111-8111-000000000003",
+      "versionNumber": 1,
+      "ciphertext": "KMpjX5nNl3PG6c/lF80GAjyO7bh8chZNJR9Buw==",
+      "envelopeMetadata": "{\"sealedSnapshot\":true,\"isEncrypted\":true,\"encryptionEnvelopeVersion\":2,\"cryptoBindingId\":\"11111111-1111-4111-8111-000000000002\",\"ephemeralPublicKey\":\"3W9I9ptVxmBuWXWG2qprZb5BhAytr80sCeJq3z8xo1E=\",\"encryptedDek\":\"zkXcgRE3vfJ7dHNUWb6ydzeSt7D5dXATDwVK674YP0PQRIbR0GDgwG9bkYjmGX6P\",\"dekNonce\":\"l3K50G7EO88GpGwl\",\"contentNonce\":\"QmsP3FHmoqByy4hx\",\"ciphertext\":\"KMpjX5nNl3PG6c/lF80GAjyO7bh8chZNJR9Buw==\",\"encryptedDekNonce\":\"l3K50G7EO88GpGwl\",\"envelopeVersion\":2,\"encryptedFieldsJson\":\"{\\\"schema\\\":\\\"knowz-encrypted-fields-v1\\\",\\\"fields\\\":{\\\"title\\\":{\\\"ephemeralPublicKey\\\":\\\"yWCQ+vhTNCcz2G4qYdAohvU3mVwY2IAw+RaDd+kBWUs=\\\",\\\"encryptedDek\\\":\\\"4BNMGEU/8e3DrU3L+SZFIv+8NfPLgYZmYXrK5T2gW4YmbdyEqQztxir7nfSQwlyr\\\",\\\"dekNonce\\\":\\\"zqAtDjfLJiLfk/DT\\\",\\\"contentNonce\\\":\\\"uQp72OOQvjLUD//X\\\",\\\"ciphertext\\\":\\\"YOoU9dwQoutMD30EE9Y3hteLRR8HYufygZm7eEU=\\\",\\\"keyFingerprint\\\":\\\"aaa8fff703b50b2297f4f6e13508f72420d96fd01ebb84cb074449caaef64041\\\"}}}\"}"
+    }
+  ]
+}

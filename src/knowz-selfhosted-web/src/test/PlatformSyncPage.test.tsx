@@ -8,6 +8,13 @@ import type { PlatformConnectionDto, VaultSyncStatusDto } from '../lib/types'
 vi.mock('../lib/api-client', () => ({
   api: {
     getPlatformConnection: vi.fn(),
+    listPlatformConnections: vi.fn(),
+    createPlatformConnection: vi.fn(),
+    updatePlatformConnection: vi.fn(),
+    deletePlatformConnectionById: vi.fn(),
+    testPlatformConnectionById: vi.fn(),
+    establishSyncLink: vi.fn(),
+    listVaults: vi.fn(),
     upsertPlatformConnection: vi.fn(),
     deletePlatformConnection: vi.fn(),
     testPlatformConnection: vi.fn(),
@@ -33,11 +40,14 @@ vi.mock('../lib/api-client', () => ({
 
 import { api } from '../lib/api-client'
 
-const mockGetConnection = vi.mocked(api.getPlatformConnection)
+const mockListConnections = vi.mocked(api.listPlatformConnections)
 const mockListLinks = vi.mocked(api.listSyncLinks)
+const mockListVaults = vi.mocked(api.listVaults)
+const mockListPlatformVaults = vi.mocked(api.listPlatformVaults)
 const mockGetHistory = vi.mocked(api.getPlatformSyncHistory)
 
 const connectedDto: PlatformConnectionDto = {
+  id: 'c-cloud',
   platformApiUrl: 'https://api.knowz.io',
   displayName: 'Prod',
   hasApiKey: true,
@@ -65,9 +75,11 @@ const link: VaultSyncStatusDto = {
 
 describe('PlatformSyncPage', () => {
   beforeEach(() => {
-    mockGetConnection.mockResolvedValue(connectedDto)
+    mockListConnections.mockResolvedValue([connectedDto])
     mockListLinks.mockResolvedValue([link])
     mockGetHistory.mockResolvedValue([])
+    mockListVaults.mockResolvedValue({ vaults: [] })
+    mockListPlatformVaults.mockResolvedValue({ vaults: [], totalCount: 0 })
   })
 
   afterEach(() => {
@@ -95,9 +107,12 @@ describe('PlatformSyncPage', () => {
 
   it('Should_RenderConnectionCard_WithHeader', async () => {
     renderWithProviders(<PlatformSyncPage />)
+    expect(screen.getByRole('heading', { name: 'Connections' })).toBeInTheDocument()
+    // The primary Cloud connection is a card headed by its display name.
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Connection' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Prod' })).toBeInTheDocument()
     })
+    expect(screen.getByTestId('primary-badge')).toBeInTheDocument()
   })
 
   it('Should_RenderVaultLinksTable_WithLinks', async () => {
@@ -138,17 +153,83 @@ describe('PlatformSyncPage', () => {
 
   it('Should_TreatConnection404AsNull_WhenEndpointMissing', async () => {
     const { ApiError } = await import('../lib/api-client')
-    mockGetConnection.mockRejectedValue(new ApiError(404, 'Not found'))
+    mockListConnections.mockRejectedValue(new ApiError(404, 'Not found'))
     renderWithProviders(<PlatformSyncPage />)
     await waitFor(() => {
       expect(screen.getByText('Not Connected')).toBeInTheDocument()
     })
+    expect(screen.getByRole('heading', { name: 'Connect to Knowz Cloud' })).toBeInTheDocument()
   })
 
   it('Should_CallGetHistoryWithDefaultLimit50_OnMount', async () => {
     renderWithProviders(<PlatformSyncPage />)
     await waitFor(() => {
       expect(mockGetHistory).toHaveBeenCalledWith(1, 50, undefined)
+    })
+  })
+})
+
+// ---------- UI_SH_PeerDestination : several destinations on one page ----------
+describe('PlatformSyncPage — peer destinations (UI_SH_PeerDestination)', () => {
+  const peerDto: PlatformConnectionDto = {
+    ...connectedDto,
+    id: 'c-peer',
+    platformApiUrl: 'https://knowz.example.com',
+    displayName: 'Office instance',
+  }
+
+  beforeEach(() => {
+    mockListConnections.mockResolvedValue([connectedDto, peerDto])
+    mockListLinks.mockResolvedValue([link])
+    mockGetHistory.mockResolvedValue([])
+    mockListVaults.mockResolvedValue({ vaults: [] })
+    mockListPlatformVaults.mockResolvedValue({ vaults: [], totalCount: 0 })
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('Should_ListEveryConnection_WithOnePrimaryBadge', async () => {
+    renderWithProviders(<PlatformSyncPage />)
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Office instance' })).toBeInTheDocument()
+    })
+    expect(screen.getByRole('heading', { name: 'Prod' })).toBeInTheDocument()
+    expect(screen.getAllByTestId('primary-badge')).toHaveLength(1)
+    expect(screen.getByText('2 configured')).toBeInTheDocument()
+  })
+
+  it('Should_StateTheAllowlistRequirement_InTheSubtitle', () => {
+    renderWithProviders(<PlatformSyncPage />)
+    expect(screen.getByText(/must be allowlisted by the operator/)).toBeInTheDocument()
+    expect(screen.getByText(/Nothing syncs automatically/)).toBeInTheDocument()
+  })
+
+  it('Should_OpenTheLinkVaultFlow_WithADestinationPicker', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<PlatformSyncPage />)
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Office instance' })).toBeInTheDocument()
+    })
+    await user.click(screen.getByRole('button', { name: /link a vault/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Link a vault' })).toBeInTheDocument()
+    })
+    const picker = screen.getByRole('combobox', { name: 'Destination' }) as HTMLSelectElement
+    expect(picker.value).toBe('c-cloud')
+    expect(screen.getByRole('option', { name: /Office instance · Allowlisted peer/ })).toBeInTheDocument()
+  })
+
+  it('Should_GeneraliseTheBrowseButton_WhenAPeerExists', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<PlatformSyncPage />)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /browse a destination/i })).toBeInTheDocument()
+    })
+    await user.click(screen.getByRole('button', { name: /browse a destination/i }))
+    await waitFor(() => {
+      expect(screen.getByTestId('browse-destination-picker')).toBeInTheDocument()
     })
   })
 })

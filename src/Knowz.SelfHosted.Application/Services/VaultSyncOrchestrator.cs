@@ -25,6 +25,29 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
     /// </summary>
     public const int BulkItemCap = 100;
 
+    /// <summary>
+    /// Detail line emitted when a Full / PushOnly run never reached the push lane because the
+    /// pull lane consumed the whole <see cref="BulkItemCap"/> budget (SPEC_VaultSyncPartialRunHonesty).
+    /// </summary>
+    public static readonly string PushSkippedDetail =
+        $"Push skipped — {BulkItemCap}-item limit reached during pull. Re-run to continue.";
+
+    /// <summary>
+    /// Detail line emitted when a Full run skipped the file lane because the run was Partial.
+    /// Files sync only once a Full run completes the pull and push lanes under the cap
+    /// (SPEC_VaultSyncPartialRunHonesty).
+    /// </summary>
+    public static readonly string FilesSkippedPartialDetail =
+        $"Files skipped — run stopped at the {BulkItemCap}-item limit before the file lane. " +
+        "Re-run until the run is no longer partial; files sync after pull and push complete.";
+
+    /// <summary>
+    /// Detail line emitted on PullOnly / PushOnly runs: the file lane runs only on Full,
+    /// so an operator choosing a one-way run is told files did not move.
+    /// </summary>
+    public const string FilesNotSyncedDirectionDetail =
+        "Files not synced — files move only on a Full run.";
+
     private readonly SelfHostedDbContext _db;
     private readonly ITenantProvider _tenantProvider;
     private readonly IPlatformSyncClient _platformClient;
@@ -190,11 +213,20 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
             else if (direction is SyncDirection.Full or SyncDirection.PushOnly)
             {
                 result.Partial = true;
-                result.Details.Add("Push skipped — 100-item limit reached during pull. Re-run to continue.");
+                result.Details.Add(PushSkippedDetail);
             }
 
-            // Step 3: File sync (after entity sync). Skipped on partial runs to keep run bounded.
-            if (direction == SyncDirection.Full && !result.Partial)
+            // Step 3: File sync (after entity sync). Skipped on partial runs to keep the run
+            // bounded — and the skip is always reported, never silent (G7 / #1044).
+            if (direction != SyncDirection.Full)
+            {
+                result.Details.Add(FilesNotSyncedDirectionDetail);
+            }
+            else if (result.Partial)
+            {
+                result.Details.Add(FilesSkippedPartialDetail);
+            }
+            else
             {
                 var fileResult = await _fileSyncService.SyncFilesAsync(link, ct);
                 result.Details.Add($"Files: {fileResult.Downloaded} downloaded, {fileResult.Uploaded} uploaded, {fileResult.Skipped} skipped");
@@ -327,7 +359,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
         // items that were skipped.
         if (newCursor.HasValue && !totalResult.HitItemCap)
         {
-            link.LastPullCursor = newCursor;
+            link.LastPullCursor = AsUtc(newCursor.Value);
             await _db.SaveChangesAsync(ct);
         }
 
@@ -393,12 +425,22 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
     private async Task<SyncDeltaImportResult> ImportSyncDeltaLocallyAsync(
         global::Knowz.Core.Portability.PortableExportPackage package, Guid localVaultId, CancellationToken ct)
     {
+        if (SelfHostedInlineSyncPolicy.HasProtectedGraph(package) || await SelfHostedInlineSyncPolicy.IsProtectedVaultAsync(_db, _tenantProvider.TenantId, localVaultId, ct))
+            return new SyncDeltaImportResult { Success = false, Error = SelfHostedInlineSyncPolicy.Message };
+        // Npgsql/SQL Server EnableRetryOnFailure forbids user-initiated transactions
+        // outside CreateExecutionStrategy (G3 live smoke: Sync delta import failed).
         var result = new SyncDeltaImportResult { Success = true };
         var tenantId = _tenantProvider.TenantId;
+        var strategy = _db.Database.CreateExecutionStrategy();
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
-        try
+        await strategy.ExecuteAsync(async () =>
         {
+            // Reset counters on retry so a failed attempt does not inflate Accepted.
+            result = new SyncDeltaImportResult { Success = true };
+
+            await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+            try
+            {
             // Import reference entities (last-write-wins)
             result.Accepted += await SyncEntities(package.Data.Topics, _db.Topics, tenantId,
                 (pt, existing) => { existing.Name = pt.Name; existing.Description = pt.Description; }, ct);
@@ -447,7 +489,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                         existing.Summary = pk.Summary;
                         existing.Source = pk.Source;
                         existing.TopicId = pk.TopicId;
-                        existing.UpdatedAt = pk.UpdatedAt;
+                        existing.UpdatedAt = AsUtc(pk.UpdatedAt);
                         existing.IsDeleted = false;
                         result.Accepted++;
                     }
@@ -471,8 +513,8 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                         Type = pk.Type,
                         FilePath = pk.FilePath,
                         TopicId = pk.TopicId,
-                        CreatedAt = pk.CreatedAt,
-                        UpdatedAt = pk.UpdatedAt,
+                        CreatedAt = AsUtc(pk.CreatedAt),
+                        UpdatedAt = AsUtc(pk.UpdatedAt),
                     };
                     _db.KnowledgeItems.Add(newItem);
 
@@ -541,7 +583,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                     {
                         existing.Body = pc.Body;
                         existing.AuthorName = pc.AuthorName;
-                        existing.UpdatedAt = pc.UpdatedAt;
+                        existing.UpdatedAt = AsUtc(pc.UpdatedAt);
                         result.Accepted++;
                     }
                     else result.Skipped++;
@@ -556,8 +598,8 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                         ParentCommentId = pc.ParentCommentId,
                         AuthorName = pc.AuthorName,
                         Body = pc.Body,
-                        CreatedAt = pc.CreatedAt,
-                        UpdatedAt = pc.UpdatedAt,
+                        CreatedAt = AsUtc(pc.CreatedAt),
+                        UpdatedAt = AsUtc(pc.UpdatedAt),
                     });
                     result.Accepted++;
                 }
@@ -575,17 +617,29 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
 
             await _db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
-        }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync(ct);
-            _logger.LogError(ex, "Sync delta import failed");
-            result.Success = false;
-            result.Error = ex.Message;
-        }
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync(ct);
+                _logger.LogError(ex, "Sync delta import failed");
+                result.Success = false;
+                result.Error = ex.Message;
+            }
+        });
 
         return result;
     }
+
+    /// <summary>
+    /// ADR_G6 (#1043) receive side: a peer pushed a delta package into one of our vaults.
+    /// Same LWW import the pull lane uses; auth / vault access / item cap are enforced by the
+    /// SH receive endpoints before this is reached.
+    /// </summary>
+    public Task<SyncDeltaImportResult> ImportSyncDeltaAsync(
+        global::Knowz.Core.Portability.PortableExportPackage package,
+        Guid localVaultId,
+        CancellationToken ct = default)
+        => ImportSyncDeltaLocallyAsync(package, localVaultId, ct);
 
     /// <summary>
     /// NODE-5: test-only entry point into the vault-import path. Public so tests can
@@ -729,6 +783,19 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
     /// <summary>
     /// Generic last-write-wins sync for reference entities (Topic, Tag, Person, Location, Event).
     /// </summary>
+
+    /// <summary>
+    /// Portable JSON often omits Z on timestamps; STJ yields Unspecified Kind which
+    /// Npgsql rejects for timestamptz columns. Treat Unspecified as UTC.
+    /// </summary>
+    private static DateTime AsUtc(DateTime value) =>
+        value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        };
+
     private async Task<int> SyncEntities<TPortable, TEntity>(
         List<TPortable> incoming,
         DbSet<TEntity> dbSet,
@@ -742,7 +809,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
         foreach (var item in incoming)
         {
             var id = (Guid)item.GetType().GetProperty("Id")!.GetValue(item)!;
-            var updatedAt = (DateTime)item.GetType().GetProperty("UpdatedAt")!.GetValue(item)!;
+            var updatedAt = AsUtc((DateTime)item.GetType().GetProperty("UpdatedAt")!.GetValue(item)!);
 
             var existing = await dbSet.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(e => e.TenantId == tenantId && e.Id == id, ct);
@@ -759,7 +826,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
             else
             {
                 var name = (string?)item.GetType().GetProperty("Name")?.GetValue(item) ?? "";
-                var createdAt = (DateTime)item.GetType().GetProperty("CreatedAt")!.GetValue(item)!;
+                var createdAt = AsUtc((DateTime)item.GetType().GetProperty("CreatedAt")!.GetValue(item)!);
                 var newEntity = (TEntity)Activator.CreateInstance(typeof(TEntity))!;
                 newEntity.Id = id;
                 newEntity.TenantId = tenantId;
@@ -787,7 +854,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                     .FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == tombstone.EntityId, ct);
                 if (k != null && !k.IsDeleted && tombstone.DeletedAt > k.UpdatedAt)
                 {
-                    k.IsDeleted = true; k.UpdatedAt = tombstone.DeletedAt;
+                    k.IsDeleted = true; k.UpdatedAt = AsUtc(tombstone.DeletedAt);
                     return true;
                 }
                 break;
@@ -796,7 +863,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                     .FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == tombstone.EntityId, ct);
                 if (t != null && !t.IsDeleted && tombstone.DeletedAt > t.UpdatedAt)
                 {
-                    t.IsDeleted = true; t.UpdatedAt = tombstone.DeletedAt;
+                    t.IsDeleted = true; t.UpdatedAt = AsUtc(tombstone.DeletedAt);
                     return true;
                 }
                 break;
@@ -805,7 +872,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                     .FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == tombstone.EntityId, ct);
                 if (p != null && !p.IsDeleted && tombstone.DeletedAt > p.UpdatedAt)
                 {
-                    p.IsDeleted = true; p.UpdatedAt = tombstone.DeletedAt;
+                    p.IsDeleted = true; p.UpdatedAt = AsUtc(tombstone.DeletedAt);
                     return true;
                 }
                 break;
@@ -814,7 +881,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                     .FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == tombstone.EntityId, ct);
                 if (l != null && !l.IsDeleted && tombstone.DeletedAt > l.UpdatedAt)
                 {
-                    l.IsDeleted = true; l.UpdatedAt = tombstone.DeletedAt;
+                    l.IsDeleted = true; l.UpdatedAt = AsUtc(tombstone.DeletedAt);
                     return true;
                 }
                 break;
@@ -823,7 +890,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                     .FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == tombstone.EntityId, ct);
                 if (e != null && !e.IsDeleted && tombstone.DeletedAt > e.UpdatedAt)
                 {
-                    e.IsDeleted = true; e.UpdatedAt = tombstone.DeletedAt;
+                    e.IsDeleted = true; e.UpdatedAt = AsUtc(tombstone.DeletedAt);
                     return true;
                 }
                 break;
@@ -847,6 +914,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
             LocalVaultName = vault?.Name ?? "Unknown",
             RemoteVaultId = link.RemoteVaultId,
             PlatformApiUrl = link.PlatformApiUrl,
+            PlatformConnectionId = link.PlatformConnectionId,
             Status = link.LastSyncStatus.ToString(),
             LastSyncError = link.LastSyncError,
             LastSyncCompletedAt = link.LastSyncCompletedAt,
@@ -871,6 +939,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
             LocalVaultName = vaults.TryGetValue(link.LocalVaultId, out var v) ? v.Name : "Unknown",
             RemoteVaultId = link.RemoteVaultId,
             PlatformApiUrl = link.PlatformApiUrl,
+            PlatformConnectionId = link.PlatformConnectionId,
             Status = link.LastSyncStatus.ToString(),
             LastSyncError = link.LastSyncError,
             LastSyncCompletedAt = link.LastSyncCompletedAt,
@@ -914,36 +983,22 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
 
         try
         {
-            // Resolve or create the per-tenant PlatformConnection (replaces the
-            // plaintext VaultSyncLink.ApiKeyEncrypted column and the Guid.Empty
-            // RemoteTenantId hack).
+            // Resolve the PlatformConnection this link binds to (ADR_G6, #1043 — connections
+            // are one-of-many per tenant, so never pick "whichever row the tenant has"):
+            //   1. request.PlatformConnectionId → that row (must belong to this tenant);
+            //   2. else an existing connection with the same normalized URL;
+            //   3. else create one when an API key was supplied;
+            //   4. else legacy per-link columns (bootstrapped scenarios / tests without a service).
             var tenantId = _tenantProvider.TenantId;
-            var connection = await _db.PlatformConnections
-                .FirstOrDefaultAsync(c => c.TenantId == tenantId, ct);
+            var connection = await ResolveConnectionForLinkAsync(request, tenantId, ct);
 
-            if (connection is null && _connectionService is not null)
-            {
-                await _connectionService.UpsertAsync(
-                    new UpsertPlatformConnectionRequest(
-                        request.PlatformApiUrl,
-                        DisplayName: null,
-                        ApiKey: request.ApiKey),
-                    createdByUserId: Guid.Empty,
-                    ct);
-
-                connection = await _db.PlatformConnections
-                    .FirstOrDefaultAsync(c => c.TenantId == tenantId, ct);
-            }
-
-            // Fallback for bootstrapped scenarios where no connection service is wired
-            // (e.g. tests constructing the orchestrator directly) — write the legacy columns.
             var link = new VaultSyncLink
             {
                 LocalVaultId = request.LocalVaultId,
                 RemoteVaultId = request.RemoteVaultId,
                 PlatformConnectionId = connection?.Id,
 #pragma warning disable CS0618 // Legacy columns retained until follow-up drop migration.
-                PlatformApiUrl = request.PlatformApiUrl.TrimEnd('/'),
+                PlatformApiUrl = connection?.PlatformApiUrl ?? request.PlatformApiUrl.TrimEnd('/'),
                 ApiKeyEncrypted = connection is null ? request.ApiKey : string.Empty,
 #pragma warning restore CS0618
             };
@@ -957,9 +1012,10 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
             {
                 await _platformClient.RegisterPartnerAsync(link, $"selfhosted-{vault.Name}", ct);
 
-                if (_connectionService is not null)
+                if (_connectionService is not null && connection is not null)
                 {
-                    var testResult = await _connectionService.TestAsync(ct: ct);
+                    // Test THE LINK'S connection, not the tenant's primary one.
+                    var testResult = await _connectionService.TestByIdAsync(connection.Id, ct: ct);
                     if (testResult.Status == PlatformConnectionTestStatus.Ok && testResult.RemoteTenantId is Guid rid)
                     {
                         link.RemoteTenantId = rid;
@@ -994,6 +1050,7 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
                 LocalVaultName = vault.Name,
                 RemoteVaultId = link.RemoteVaultId,
                 PlatformApiUrl = link.PlatformApiUrl,
+                PlatformConnectionId = link.PlatformConnectionId,
                 Status = link.LastSyncStatus.ToString(),
                 SyncEnabled = link.SyncEnabled,
             };
@@ -1013,6 +1070,53 @@ public class VaultSyncOrchestrator : IVaultSyncOrchestrator
             }
             throw;
         }
+    }
+
+    /// <summary>
+    /// ADR_G6 (#1043): pick the connection a new link binds to. See EstablishLinkAsync for the
+    /// precedence. Throws when an explicit id is absent or belongs to another tenant.
+    /// </summary>
+    private async Task<PlatformConnection?> ResolveConnectionForLinkAsync(
+        EstablishSyncLinkRequest request, Guid tenantId, CancellationToken ct)
+    {
+        if (request.PlatformConnectionId is Guid explicitId)
+        {
+            return await _db.PlatformConnections
+                .FirstOrDefaultAsync(c => c.Id == explicitId && c.TenantId == tenantId, ct)
+                ?? throw new InvalidOperationException("Platform connection not found.");
+        }
+
+        var normalizedUrl = string.IsNullOrWhiteSpace(request.PlatformApiUrl)
+            ? string.Empty
+            : request.PlatformApiUrl.Trim().TrimEnd('/');
+
+        if (normalizedUrl.Length > 0)
+        {
+            var byUrl = await _db.PlatformConnections
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.PlatformApiUrl == normalizedUrl, ct);
+            if (byUrl is not null) return byUrl;
+        }
+
+        if (_connectionService is not null && !string.IsNullOrWhiteSpace(request.ApiKey))
+        {
+            var created = await _connectionService.CreateAsync(
+                new UpsertPlatformConnectionRequest(
+                    request.PlatformApiUrl,
+                    DisplayName: null,
+                    ApiKey: request.ApiKey),
+                createdByUserId: Guid.Empty,
+                ct);
+
+            return await _db.PlatformConnections
+                .FirstOrDefaultAsync(c => c.Id == created.Id, ct);
+        }
+
+        // Legacy: no service wired, or no key to create with → fall back to the tenant's
+        // primary connection if any, else the per-link columns.
+        return await _db.PlatformConnections
+            .Where(c => c.TenantId == tenantId)
+            .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
+            .FirstOrDefaultAsync(ct);
     }
 
     public async Task<bool> RemoveLinkAsync(Guid localVaultId, CancellationToken ct = default)

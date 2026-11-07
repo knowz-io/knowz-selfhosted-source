@@ -6,6 +6,12 @@ public class FileRecord : ISelfHostedEntity
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid TenantId { get; set; }
+    public Guid? OriginalFileId { get; set; }
+    public int FileVersion { get; set; } = 1;
+    public Guid? RootFileRecordId { get; set; }
+    public Guid? PreviousFileRecordId { get; set; }
+    public bool IsCurrentVersion { get; set; } = true;
+    public string? EncryptedFieldsJson { get; set; }
     public string FileName { get; set; } = string.Empty;
     public string? ContentType { get; set; }
     public long SizeBytes { get; set; }

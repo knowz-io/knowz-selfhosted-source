@@ -1,4 +1,6 @@
 using Knowz.Core.Entities;
+using Knowz.Core.Portability;
+using System.Text.Json;
 using Knowz.Core.Interfaces;
 using Knowz.SelfHosted.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +14,7 @@ namespace Knowz.SelfHosted.Application.Services;
 /// </summary>
 public class VersioningService : IVersioningService
 {
+    public const string ProtectedHistoryRestoreMessage = "Protected history requires POST /api/v1/encrypted/items/{id}/versions/{versionId}/restore with the current If-Match revision.";
     private readonly SelfHostedDbContext _db;
     private readonly ITenantProvider _tenantProvider;
     private readonly ILogger<VersioningService> _logger;
@@ -29,6 +32,7 @@ public class VersioningService : IVersioningService
     public async Task<KnowledgeVersion> CreateVersionAsync(
         Guid knowledgeId, Guid? userId, string? changeDescription, CancellationToken ct)
     {
+        await SelfHostedInactiveShelf.RequireMutableAsync(_db, knowledgeId, ct);
         var tenantId = _tenantProvider.TenantId;
 
         var knowledge = await _db.KnowledgeItems
@@ -37,12 +41,17 @@ public class VersioningService : IVersioningService
         if (knowledge == null)
             throw new InvalidOperationException($"Knowledge item {knowledgeId} not found.");
 
+        if (await _db.ShSealedKnowledge.AnyAsync(k => k.KnowledgeId == knowledgeId, ct)
+            || await _db.ShPayloadKeyReferences.AnyAsync(r => r.OwnerKind == "knowledge" && r.OwnerId == knowledgeId && r.Role == "body", ct))
+            throw new InvalidOperationException("Encrypted body snapshots require the encrypted lifecycle API.");
         // Determine next version number
         var maxVersion = await _db.KnowledgeVersions
             .Where(v => v.KnowledgeId == knowledgeId)
             .MaxAsync(v => (int?)v.VersionNumber, ct) ?? 0;
 
-        var version = new KnowledgeVersion
+        var version = knowledge.EncryptedFieldsJson != null
+            ? await new SelfHostedSealedStore(_db, _tenantProvider, Microsoft.Extensions.Logging.Abstractions.NullLogger<SelfHostedSealedStore>.Instance).StagePlainSnapshotAsync(knowledgeId, userId, changeDescription, ct)
+            : new KnowledgeVersion
         {
             TenantId = tenantId,
             KnowledgeId = knowledgeId,
@@ -54,7 +63,7 @@ public class VersioningService : IVersioningService
             ChangeDescription = changeDescription
         };
 
-        _db.KnowledgeVersions.Add(version);
+        if (knowledge.EncryptedFieldsJson == null) _db.KnowledgeVersions.Add(version);
 
         // Write audit log entry
         _db.AuditLogs.Add(new AuditLog
@@ -92,6 +101,7 @@ public class VersioningService : IVersioningService
 
     public async Task<bool> RestoreVersionAsync(Guid knowledgeId, int versionNumber, Guid? userId, CancellationToken ct)
     {
+        await SelfHostedInactiveShelf.RequireMutableAsync(_db, knowledgeId, ct);
         var tenantId = _tenantProvider.TenantId;
 
         var version = await _db.KnowledgeVersions
@@ -106,6 +116,19 @@ public class VersioningService : IVersioningService
         if (knowledge == null)
             return false;
 
+        if (knowledge.EncryptedFieldsJson != null || await _db.ShSealedKnowledge.AnyAsync(k => k.KnowledgeId == knowledgeId, ct)
+            || await _db.ShPayloadKeyReferences.AnyAsync(r => r.OwnerKind == "knowledge" && r.OwnerId == knowledgeId || r.OwnerKind == "version" && r.OwnerId == version.Id, ct))
+            throw new InvalidOperationException(ProtectedHistoryRestoreMessage);
+        if (version.PlatformData != null)
+        {
+            try
+            {
+                var snapshot = JsonSerializer.Deserialize<PortablePlainVersionRecord>(version.PlatformData, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                if (snapshot == null || snapshot.StorageStrategy != "full" || snapshot.DeltaContent != null || PlainVersionSnapshot.ReadEncryptedFields(snapshot.SnapshotJson) != null)
+                    throw new InvalidOperationException(ProtectedHistoryRestoreMessage);
+            }
+            catch (Exception ex) when (ex is JsonException or KnowzArchiveException) { throw new InvalidOperationException(ProtectedHistoryRestoreMessage); }
+        }
         // Snapshot current state before restoring (so the restore itself is versioned)
         var maxVersion = await _db.KnowledgeVersions
             .Where(v => v.KnowledgeId == knowledgeId)

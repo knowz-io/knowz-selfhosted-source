@@ -1,3 +1,4 @@
+import { AccountEncryptedRecord, AccountPortableRecovery } from '../components/portability/AccountEncryptedRecord'
 import { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -290,7 +291,9 @@ export default function KnowledgeDetailPage() {
   }
 
   const startEditing = () => {
+    if (data?.portableRecoveryState) return
     if (!data) return
+    if (data.isEncrypted || data.hasEncryptedFields || looksLikeEncryptedEnvelope(data.content)) { setActiveTab('original'); return }
     setEditTitle(data.title)
     setEditContent(data.content)
     setEditTags(data.tags.join(', '))
@@ -447,14 +450,15 @@ export default function KnowledgeDetailPage() {
             <h1 className="min-w-0 break-words text-2xl font-bold">{data.title}</h1>
             <div className="flex flex-wrap gap-2 sm:flex-shrink-0 sm:justify-end">
               <button
+                disabled={!!data.portableRecoveryState}
                 onClick={startEditing}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-md text-sm hover:bg-muted transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted transition-colors"
               >
-                <Pencil size={14} /> Edit
+                <Pencil size={14} /> {data.isEncrypted || looksLikeEncryptedEnvelope(data.content) ? 'Edit encrypted content' : data.hasEncryptedFields ? 'Edit protected fields' : 'Edit'}
               </button>
               <button
                 onClick={() => { setReprocessMsg(null); reprocessMut.mutate() }}
-                disabled={reprocessMut.isPending}
+                disabled={reprocessMut.isPending || !!data.portableRecoveryState}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-input rounded-md text-sm disabled:opacity-50 hover:bg-muted transition-colors"
               >
                 <RefreshCw size={14} className={reprocessMut.isPending ? 'animate-spin' : ''} />
@@ -482,7 +486,7 @@ export default function KnowledgeDetailPage() {
             </p>
           )}
 
-          <EnrichmentBanner status={enrichmentStatus?.status ?? null} />
+          {data.portableRecoveryState ? (data.vaults?.length ? <AccountPortableRecovery vaultId={(data.vaults.find(vault => vault.isPrimary) ?? data.vaults[0]).id} knowledgeId={data.id} /> : <p role="alert">Locked imported content is read-only. An authorized vault context is required to review recovery metadata.</p>) : <EnrichmentBanner status={enrichmentStatus?.status ?? null} />}
 
           {/* Two-column grid */}
           <div className={`grid gap-6 ${sidebarOpen ? 'grid-cols-1 lg:grid-cols-[1fr_300px]' : 'grid-cols-1'}`}>
@@ -495,7 +499,7 @@ export default function KnowledgeDetailPage() {
               />
 
               <div className="animate-fade-in">
-                {activeTab === 'summary' && (
+                {activeTab === 'summary' && !data.portableRecoveryState && (
                   <SummaryTabContent
                     summary={data.summary}
                     reprocessMut={reprocessMut}
@@ -505,24 +509,16 @@ export default function KnowledgeDetailPage() {
 
                 {activeTab === 'original' && (
                   <div className="bg-card border border-border/60 rounded-xl p-5">
-                    {looksLikeEncryptedEnvelope(data.content) ? (
-                      <div data-testid="encrypted-lock" className="space-y-2">
-                        <p className="text-sm font-medium">Encrypted — unlock with your key</p>
-                        <p className="text-sm text-muted-foreground">
-                          This item was pulled from Knowz as ciphertext. It is not shown as markdown.
-                          Open Destinations after unlocking locally with your key file.
-                        </p>
-                        <Link to="/unlock" className="text-sm text-primary underline">
-                          Unlock locally
-                        </Link>
-                      </div>
+                    {data.portableRecoveryState ? <p>Original content and release controls remain locked. Review the recovery metadata above.</p> : data.isEncrypted || data.hasEncryptedFields || data.hasEncryptedAttachments || looksLikeEncryptedEnvelope(data.content) ? (
+                      data.vaults?.length ? <>{!data.isEncrypted && !looksLikeEncryptedEnvelope(data.content) && <MarkdownContent content={data.content} />}<AccountEncryptedRecord vaultId={(data.vaults.find(vault => vault.isPrimary) ?? data.vaults[0]).id} knowledgeId={data.id} /></>
+                        : <p role="alert">This encrypted record has no authorized vault context. Refresh or contact an administrator.</p>
                     ) : (
                       <MarkdownContent content={data.content} />
                     )}
                   </div>
                 )}
 
-                {activeTab === 'attachments' && (
+                {activeTab === 'attachments' && data.hasEncryptedAttachments ? <div className="bg-card border border-border/60 rounded-xl p-5"><p>Open the original-key workspace to read protected file names, download files, and edit encrypted attachment metadata.</p><button type="button" onClick={() => setActiveTab('original')}>Open original-key workspace</button></div> : activeTab === 'attachments' && (
                   <AttachmentsTabContent
                     attachments={attachments}
                     attachmentsLoading={attachmentsLoading}
@@ -567,7 +563,7 @@ export default function KnowledgeDetailPage() {
               </div>
 
               {/* Contributions Section - always visible below tabs */}
-              <CommentSection knowledgeId={id!} />
+              {!data.portableRecoveryState && <CommentSection knowledgeId={id!} />}
             </div>
 
             {/* Right column: Sidebar */}
@@ -673,6 +669,7 @@ export default function KnowledgeDetailPage() {
       {/* Floating Chat Button */}
       {!editing && (
         <button
+          disabled={!!data.portableRecoveryState}
           onClick={() => setChatOpen(!chatOpen)}
           className="fixed bottom-4 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-all hover:opacity-90 sm:bottom-6 sm:right-6 sm:h-14 sm:w-14"
           title="Chat with this knowledge item"
@@ -682,7 +679,7 @@ export default function KnowledgeDetailPage() {
       )}
 
       {/* Chat Panel */}
-      {chatOpen && !editing && (
+      {chatOpen && !editing && !data.portableRecoveryState && (
         <KnowledgeChatPanel
           knowledgeId={id!}
           knowledgeTitle={data.title}

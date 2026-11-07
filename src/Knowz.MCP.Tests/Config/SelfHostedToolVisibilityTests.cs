@@ -57,6 +57,29 @@ public class SelfHostedToolVisibilityTests
 
     // ---- VERIFY-T1 -------------------------------------------------------
 
+    [Theory]
+    [InlineData("create_knowledge", "selfhosted")]
+    [InlineData("update_knowledge", "selfhosted")]
+    [InlineData("create_knowledge", "proxy")]
+    [InlineData("update_knowledge", "proxy")]
+    public void KnowledgeTools_AdvertiseEnrichmentCapabilityForSelectedBackend(string toolName, string backendMode)
+    {
+        var options = BuildOptions(backendMode);
+        options.ToolCollection!.TryGetPrimitive(toolName, out var tool).Should().BeTrue();
+        var parameter = tool!.ProtocolTool.InputSchema.GetProperty("properties").GetProperty("enrichment");
+        parameter.GetProperty("default").GetBoolean().Should().BeTrue();
+        if (backendMode == "selfhosted")
+        {
+            tool.ProtocolTool.Description.Should().Contain("enrichment=false").And.Contain("unavailable");
+            parameter.GetProperty("description").GetString().Should().Contain("rejected");
+        }
+        else
+        {
+            tool.ProtocolTool.Description.Should().Contain("enrichment=false").And.Contain("search");
+            parameter.GetProperty("description").GetString().Should().Contain("indexing");
+        }
+    }
+
     [Fact]
     public void SelfHostedMode_AdvertisesDeclaredMinusHiddenTools()
     {
@@ -75,6 +98,17 @@ public class SelfHostedToolVisibilityTests
 
         foreach (var hidden in SelfHostedToolVisibility.HiddenTools)
             advertised.Should().NotContain(hidden);
+    }
+
+    [Theory]
+    [InlineData("get_agent")]
+    [InlineData("list_agents")]
+    [InlineData("send_agent_message")]
+    [InlineData("wake_agent")]
+    public void HostedAgentWorkspaceToolsAreHiddenOnlyOnPublicSelfHosted(string toolName)
+    {
+        AdvertisedNames(BuildOptions("selfhosted")).Should().NotContain(toolName);
+        AdvertisedNames(BuildOptions("proxy")).Should().Contain(toolName);
     }
 
     // ---- VERIFY-T2 (api.knowz.io regression guard, R5) --------------------

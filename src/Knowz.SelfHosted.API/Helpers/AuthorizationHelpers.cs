@@ -45,12 +45,16 @@ public static class AuthorizationHelpers
     }
 
     /// <summary>
-    /// Extracts the caller's user ID from JWT "sub" claim.
+    /// Extracts the caller's user ID from the JWT "sub" claim.
     /// Returns null for legacy API key users.
+    /// <see cref="JwtSecurityTokenHandler"/> maps inbound "sub" to
+    /// <see cref="ClaimTypes.NameIdentifier"/> by default, so a principal produced by
+    /// <c>AuthenticationMiddleware</c> carries the user id under that long type — read both.
     /// </summary>
     public static Guid? GetCallerId(HttpContext context)
     {
-        var claim = context.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        var claim = context.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return !string.IsNullOrEmpty(claim) && Guid.TryParse(claim, out var id) ? id : null;
     }
 
