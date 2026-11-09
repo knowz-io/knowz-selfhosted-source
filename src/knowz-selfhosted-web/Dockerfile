@@ -21,6 +21,11 @@ COPY . .
 ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
 
+# Release version shown in the footer and login page. The release workflow passes the tag;
+# empty falls back to package.json (vite.config.ts), so local builds never render a blank.
+ARG VITE_APP_VERSION=
+ENV VITE_APP_VERSION=${VITE_APP_VERSION}
+
 # Build the application
 RUN npm run build
 

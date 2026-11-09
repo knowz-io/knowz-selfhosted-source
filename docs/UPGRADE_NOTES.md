@@ -4,6 +4,23 @@ Release-specific operational guidance for self-hosted customers upgrading betwee
 
 ---
 
+## Upgrading to 0.18.0
+
+Take an encrypted backup, then upgrade. Database migrations apply on startup.
+
+```bash
+knowz backup --edition selfhosted --encrypt --out knowz-before-0.18.0.tar.gz.enc
+knowz runtime upgrade --edition selfhosted --version 0.18.0
+```
+
+New capabilities are off until you use them:
+
+- **Peer Destinations** reach only Knowz Cloud plus the hosts you list in `Sync:AllowedPlatformHosts`, over HTTPS. Private or loopback peers additionally need `Sync:AllowPrivatePeerAddresses=true` (still allowlist-only; cloud metadata addresses stay blocked).
+- **Encrypted records** are created only from the encrypted workspace. Ordinary knowledge is unchanged.
+- The MCP `enrichment=false` option is not available in this edition and is rejected before anything is saved.
+
+---
+
 ## Hosted MCP AllowedHosts vs selfhosted harden — GitHub #905 / #875
 
 `#875` incorrectly tightened **MCP `appsettings.json`** `AllowedHosts` to `localhost;127.0.0.1;[::1]`. `#867` intended compose-only harden; that file is copied into GHCR `knowz-mcp` (`src/Knowz.MCP/Dockerfile`). On v0.44.2, Container Apps stayed Healthy (probes use `Host: localhost`) while `https://mcp.knowz.io/healthz` returned AGW 502 (public `Host: mcp.knowz.io` rejected by HostFiltering).
@@ -22,31 +39,19 @@ Do not bake localhost-only back into MCP `appsettings.json`.
 
 ## Kit hardening (DB host port, Swagger, AllowedHosts) — GitHub #867
 
-Live published kit is **0.16.0 Postgres**. Overnight QA confirmed `EnableSwagger` is already `false` in that cut. The original 0.15.1 findings (SQL `"1433:1433"` on all interfaces, Swagger on in `appsettings.json`) are **obsolete** — do not patch 0.15.1 in place.
+Applies when you move **from 0.16.0** to any later release (0.16.1 through the current 0.18.x). Releases from 0.16.1 on ship these defaults in both the source compose file and the `knowz up` kit:
 
-This change hardens the **0.16.0 / develop `selfhosted/`** defaults that the next recopy ships:
-
-| Default | 0.16.0 published kit (live today) | After this change (`selfhosted/`) |
-|---------|-----------------------------------|-----------------------------------|
+| Default | 0.16.0 | 0.16.1 and later |
+|---------|--------|------------------|
 | Database host port | Loopback `127.0.0.1:${DB_PORT:-5432}:5432` | Not published. Postgres stays on the compose network (`db:5432`) |
-| Swagger / OpenAPI | Off in shipped `appsettings.json` | Still off. Also config-gated only — `IsDevelopment()` no longer forces Swagger on. Local debug: `ENABLE_SWAGGER=true` or `appsettings.Development.json` |
-| `AllowedHosts` | `*` in API and MCP `appsettings.json` | `localhost;127.0.0.1;[::1]`. Compose also adds the container DNS name (`api` / `mcp`) |
+| Swagger / OpenAPI | Off in shipped `appsettings.json` | Still off, and config-gated only: `IsDevelopment()` no longer forces it on. Local debug: `ENABLE_SWAGGER=true` or `appsettings.Development.json` |
+| API `AllowedHosts` | `*` | `localhost;127.0.0.1;[::1]`. Compose adds the container DNS name (`api` / `mcp`) |
 
 ### What you need to do
 
-**On 0.16.0 today (before the next recopy):**
-
-- Database tools on the host already work via the loopback publish. After you recopy, uncomment the loopback `ports:` block under `db` if you still need that.
-- Swagger is already off. Leave it off.
-- If you expose a public hostname, set `ALLOWED_HOSTS` (the 0.16.0 image still has `*`; the next image cut does not).
-
-**After the next recopied release:**
-
-- Host-side `psql`: uncomment the loopback `ports:` block under `db` in `docker-compose.yml`. Do not publish on `0.0.0.0`.
+- Host-side `psql`: uncomment the loopback `ports:` block under `db` in the source `docker-compose.yml`. Never publish it on `0.0.0.0`.
 - Local Swagger: `ENABLE_SWAGGER=true` in `.env`, then `docker compose up -d api`.
-- Custom / Azure hostname: set `ALLOWED_HOSTS` (or `AllowedHosts`) to that FQDN plus `localhost;api;mcp` as needed. Bare `*` is no longer the image default.
-
-CLI pull-kit `deploy/selfhosted/docker-compose.yml` (0.16.0 `knowz up`) is a separate asset and still publishes loopback `5432` (VERIFY-K17). That is not this recopy.
+- Custom or public hostname: set `ALLOWED_HOSTS` to that FQDN plus `localhost;api;mcp` as needed. Bare `*` is no longer the default.
 
 ---
 

@@ -99,6 +99,33 @@ public class AnydocContentExtractor : IFileContentExtractor
         return _cli.Value is not null;
     }
 
+    /// <summary>
+    /// Reads the rest of <paramref name="stream"/> but never more than <paramref name="limit"/>
+    /// bytes, so an oversized forward-only upload is refused without being buffered in full.
+    /// A seekable stream is read straight into an exactly sized array (no intermediate copy).
+    /// </summary>
+    private static async Task<byte[]> ReadAtMostAsync(Stream stream, long limit, CancellationToken ct)
+    {
+        if (stream.CanSeek)
+        {
+            var exact = new byte[Math.Min(stream.Length - stream.Position, limit)];
+            await stream.ReadExactlyAsync(exact, ct);
+            return exact;
+        }
+
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        while (buffer.Length < limit)
+        {
+            var read = await stream.ReadAsync(chunk.AsMemory(0, (int)Math.Min(chunk.Length, limit - buffer.Length)), ct);
+            if (read == 0)
+                break;
+            buffer.Write(chunk, 0, read);
+        }
+
+        return buffer.ToArray();
+    }
+
     public async Task<FileExtractionResult> ExtractAsync(
         FileRecord fileRecord, Stream fileStream, CancellationToken ct = default)
     {
@@ -114,9 +141,7 @@ public class AnydocContentExtractor : IFileContentExtractor
         if (fileStream.CanSeek && fileStream.Length - fileStream.Position > maxBytes)
             return Decline($"file exceeds Anydoc:MaxFileSizeMB ({_options.MaxFileSizeMB} MB)", fileRecord);
 
-        using var buffer = new MemoryStream();
-        await fileStream.CopyToAsync(buffer, ct);
-        var bytes = buffer.ToArray();
+        var bytes = await ReadAtMostAsync(fileStream, maxBytes + 1, ct);
 
         if (bytes.Length == 0)
             return Decline("file is empty", fileRecord);

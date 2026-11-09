@@ -83,9 +83,9 @@ Enable semantic vector search across your knowledge base. Requires Azure OpenAI 
 
 | Variable | Config Key | Description | Example |
 |----------|-----------|-------------|---------|
-| `AZURE_AI_SEARCH_ENDPOINT` | `AzureAISearch__Endpoint` | Azure AI Search service endpoint | `https://your-search.search.windows.net` |
-| `AZURE_AI_SEARCH_API_KEY` | `AzureAISearch__ApiKey` | Azure AI Search admin API key | `your-api-key` |
-| -- | `AzureAISearch__IndexName` | Search index name | `knowledge` |
+| `AZURE_SEARCH_ENDPOINT` | `AzureAISearch__Endpoint` | Azure AI Search service endpoint | `https://your-search.search.windows.net` |
+| `AZURE_SEARCH_APIKEY` | `AzureAISearch__ApiKey` | Azure AI Search admin API key | `your-api-key` |
+| `AZURE_SEARCH_INDEX` | `AzureAISearch__IndexName` | Search index name (compose default `knowz-selfhosted`) | `knowz-selfhosted` |
 
 > **Embedding dim/model parity (important):** The search index `contentVector` field is created with the dimension count in `Embedding__Dimensions`. Changing the embedding model after the index is created (e.g. `-3-small` → `-3-large`) requires dropping the index and re-ingesting — a dim mismatch between the index schema and new embeddings silently breaks vector search. See `selfhosted/docs/UPGRADE_NOTES.md` for the runbook.
 
