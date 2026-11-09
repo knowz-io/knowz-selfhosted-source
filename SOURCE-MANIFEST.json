@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "treeSha256": "94f43e85bef2741dc477df73c2d1db094c089fe3c15b975a81257d69f6ded4c4",
+  "treeSha256": "5cbb922d907fd9f696de35a0e6e10a6c0f8aa799aa18c019889cfdd83bef28ce",
   "files": [
     {
       "path": ".dockerignore",
@@ -22,8 +22,8 @@
     },
     {
       "path": ".github/workflows/release.yml",
-      "bytes": 6164,
-      "sha256": "16613ef9eec6e143104ec84dcdc8b3b04a2aad60fa8c953833815c7cb472cdd3",
+      "bytes": 6255,
+      "sha256": "2d5e124beaa9a540e0ea3d642df1cb847e560f24bd7b222070906a63497b3486",
       "mode": 420
     },
     {
@@ -52,8 +52,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 27770,
-      "sha256": "4514b5c958b674098726ee4c3e5bb386bc72bf3c8b57c2d7cb254c3626281e21",
+      "bytes": 27965,
+      "sha256": "d498eecb47573b8cf13f2697ac8a03844eccea97dafe154b038a029db23b0b32",
       "mode": 420
     },
     {
@@ -76,8 +76,8 @@
     },
     {
       "path": "docs/CONFIGURATION.md",
-      "bytes": 20411,
-      "sha256": "03f80d7f01c86744feccb1e19ee61e5e5b3367499aea1273315a2300ef54d2e8",
+      "bytes": 20466,
+      "sha256": "2350b6099673c9bc2a4c06fbd7b6c5de0a5f9c09075c981a4da353489e225760",
       "mode": 420
     },
     {
@@ -88,8 +88,8 @@
     },
     {
       "path": "docs/QUICKSTART.md",
-      "bytes": 11993,
-      "sha256": "0e8cd23fb5717ab01092d2d144d8abb908943df7330105e8794dbaac83f41fd7",
+      "bytes": 12045,
+      "sha256": "c524eacd1f4bbff875ae3200a04665fb231f949a08299d49bd71b32d2eea4496",
       "mode": 420
     },
     {
@@ -100,8 +100,8 @@
     },
     {
       "path": "docs/UPGRADE_NOTES.md",
-      "bytes": 8570,
-      "sha256": "206799a1d75ae47ec5cf8f1e9f612927a8088fefc03056ea18cee0cbbfe01d0d",
+      "bytes": 8473,
+      "sha256": "0eba11a45724ecfdc3ad582e144939e44cb2f6f52149e07cc1caaf6ef16aa6b3",
       "mode": 420
     },
     {
@@ -2752,8 +2752,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Infrastructure/Services/AnydocContentExtractor.cs",
-      "bytes": 15905,
-      "sha256": "63fd8a153c9d6bab1e7849a7166c5b2a71f94fb5ab0b3a6ef68805317f6dffc9",
+      "bytes": 16885,
+      "sha256": "597579f982e3aa3972d0882ba604780603449b8e00d0274380041614d06b123e",
       "mode": 420
     },
     {
@@ -2800,8 +2800,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Infrastructure/Services/CompositeContentExtractor.cs",
-      "bytes": 2574,
-      "sha256": "eb7a55cad62e6e34d9ae9119331e1dd8a224a6ef118eb0d7b15df097814657c2",
+      "bytes": 2852,
+      "sha256": "f74e14c1173ef53baa124201eeb1f5cb7f3ac3e806c68c00362a501f003c7dae",
       "mode": 420
     },
     {
@@ -3262,8 +3262,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Tests/AnydocContentExtractorTests.cs",
-      "bytes": 14479,
-      "sha256": "33f128350c57721a76aa7fbc5b608ae56796832bf246a029fa31e960fdd262f0",
+      "bytes": 16484,
+      "sha256": "f3636906d64a502d6317bde39720c38ee1323bd66dda57f63f1979e7d80ad420",
       "mode": 420
     },
     {
@@ -3406,8 +3406,8 @@
     },
     {
       "path": "src/Knowz.SelfHosted.Tests/CompositeContentExtractorTests.cs",
-      "bytes": 17185,
-      "sha256": "eb9526d1777a607429aca6f3828d24a79170fe9eb2c05e8324edfa7c1d9655f2",
+      "bytes": 19860,
+      "sha256": "261e750bed478e41cd6235f1aa700fbac2a950af5929cae3b26c15824cb21634",
       "mode": 420
     },
     {
@@ -4414,8 +4414,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/Dockerfile",
-      "bytes": 3740,
-      "sha256": "3c7d8b5ea142de191be964f6d051d5952eb8c1ed96ddcbd035d165d01579ec89",
+      "bytes": 3986,
+      "sha256": "67a6573ce821992c1c0f6788724cc2281e88ac2fcc2dabece1035b92f72ed53a",
       "mode": 420
     },
     {
@@ -4426,8 +4426,8 @@
     },
     {
       "path": "src/knowz-selfhosted-web/package-lock.json",
-      "bytes": 171893,
-      "sha256": "f5688a5aae8d3bb34e5c64d2ed362b8319442ee6fbed4ee6c909f678e898403d",
+      "bytes": 172171,
+      "sha256": "8c20b4dec7e828771a7e6dd191a892200bdc5d37bd02133f5c5e93d52dd89998",
       "mode": 420
     },
     {
@@ -5865,7 +5865,7 @@
       "mode": 420
     }
   ],
-  "sourceRevision": "bff25e6109696b6ad0b3330446dc06c6fd399ddf",
+  "sourceRevision": "4b547b831c796f115d9e7a6283382a5d5b98a120",
   "workingTreeDirty": false,
   "license": "Apache-2.0",
   "policySha256": "785ebc7a04a6684ec4b4b20e83b49688997733fc0a24042732864ecea85b6a1f"

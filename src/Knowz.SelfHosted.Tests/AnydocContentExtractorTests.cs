@@ -358,4 +358,47 @@ public sealed class AnydocContentExtractorTests : IDisposable
         Assert.Equal("node", resolved.FileName);
         Assert.Equal([script], resolved.PrefixArguments);
     }
+
+    [PosixShellFact]
+    public async Task ExtractAsync_NonSeekableAboveMaxFileSize_StopsReadingAtTheLimit()
+    {
+        // REFACTOR_SelfHostedExtractorStreamBuffering: a non-seekable upload used to be buffered in
+        // full before the size check, so the limit bounded nothing. Reading stops one byte past it.
+        var (stub, log) = WriteRecordingStub(0, new string('a', 80));
+        var extractor = Build(stub, new Dictionary<string, string?> { ["Anydoc:MaxFileSizeMB"] = "1" });
+
+        var oversized = new CountingNonSeekableStream(new byte[3 * 1024 * 1024]);
+        var result = await extractor.ExtractAsync(MakeRecord("application/pdf"), oversized);
+
+        Assert.True(result.Declined);
+        Assert.False(File.Exists(log));
+        Assert.InRange(oversized.BytesRead, 1024 * 1024 + 1, 1024 * 1024 + 128 * 1024);
+    }
+}
+
+/// <summary>Forward-only stream over a byte array that counts what callers actually read.</summary>
+internal sealed class CountingNonSeekableStream(byte[] data) : Stream
+{
+    private int _position;
+    public long BytesRead { get; private set; }
+
+    public override bool CanRead => true;
+    public override bool CanSeek => false;
+    public override bool CanWrite => false;
+    public override long Length => throw new NotSupportedException();
+    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+    public override int Read(byte[] buffer, int offset, int count)
+    {
+        var n = Math.Min(count, data.Length - _position);
+        Array.Copy(data, _position, buffer, offset, n);
+        _position += n;
+        BytesRead += n;
+        return n;
+    }
+
+    public override void Flush() { }
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override void SetLength(long value) => throw new NotSupportedException();
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 }

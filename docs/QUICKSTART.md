@@ -1,6 +1,6 @@
 # Quickstart Guide
 
-This guide targets the **Knowz CLI 0.5.0 preview**. CLI versions and selfhosted image versions are separate. `knowz up` opens local browser setup, pulls published GHCR **release images**, and starts the web UI. A standard installation requires no source checkout or build.
+This guide targets **Knowz CLI 0.5.7**, which installs Self-Hosted **0.18.0** by default. CLI versions and selfhosted image versions are separate. `knowz up` opens local browser setup, pulls published GHCR **release images**, and starts the web UI. A standard installation requires no source checkout or build.
 
 ## Prerequisites
 
@@ -8,20 +8,20 @@ This guide targets the **Knowz CLI 0.5.0 preview**. CLI versions and selfhosted 
 - [Node.js 22+](https://nodejs.org/) for the npm install below
 - Space and memory for PostgreSQL, API, web and MCP containers; a locally hosted AI model needs its own resources
 
-Node-free installers and checksums are available through [Knowz CLI releases](https://github.com/knowz-io/knowz-cli/releases). The 0.5.0 native preview is unsigned and not notarized; check the status of the exact artifact you download.
+Node-free installers and checksums are available through [Knowz CLI releases](https://github.com/knowz-io/knowz-cli/releases). The native installers are a preview: they are unsigned and not notarized; check the status of the exact artifact you download.
 
 ## Step 1: Open setup
 
-Run the exact preview version:
+Run the exact CLI version:
 
 ```bash
-npx @knowzai/cli@0.5.6 up
+npx @knowzai/cli@0.5.7 up
 ```
 
 Or install it once:
 
 ```bash
-npm i -g @knowzai/cli@0.5.6
+npm i -g @knowzai/cli@0.5.7
 knowz up
 ```
 
@@ -116,7 +116,7 @@ Take an encrypted backup, then select a compatible **selfhosted image version**,
 
 ```bash
 knowz backup --edition selfhosted --encrypt --out knowz-before-upgrade.tar.gz.enc
-knowz runtime upgrade --edition selfhosted --version 0.16.2
+knowz runtime upgrade --edition selfhosted --version 0.18.0
 knowz runtime status --edition selfhosted
 ```
 
@@ -171,7 +171,7 @@ Log in at [http://localhost:3000](http://localhost:3000) with `ADMIN_USERNAME` /
 
 ### CLI install
 
-If `npx @knowzai/cli@0.5.6 up` or `knowz up` fails, confirm Docker is running and Node is 22+ for the npm install. Use `knowz runtime doctor --edition selfhosted` and the reported setup error. Remap occupied ports with `--api-port`, `--web-port`, and `--mcp-port`; use `--name` to identify a separate installation. The CLI reports the bound service URLs.
+If `npx @knowzai/cli@0.5.7 up` or `knowz up` fails, confirm Docker is running and Node is 22+ for the npm install. Use `knowz runtime doctor --edition selfhosted` and the reported setup error. Remap occupied ports with `--api-port`, `--web-port`, and `--mcp-port`; use `--name` to identify a separate installation. The CLI reports the bound service URLs.
 
 ### Port Conflicts
 

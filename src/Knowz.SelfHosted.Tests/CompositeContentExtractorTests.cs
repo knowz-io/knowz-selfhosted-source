@@ -421,4 +421,62 @@ public class CompositeContentExtractorTests
         Assert.Equal(1, first.Calls);
         Assert.Equal(1, second.Calls);
     }
+
+    [Fact]
+    public async Task FallThrough_SeekableStream_IsRewoundInPlace_NotCopied()
+    {
+        // REFACTOR_SelfHostedExtractorStreamBuffering: a seekable stream is handed to every attempt
+        // and rewound to where the caller left it, instead of being copied into a second buffer.
+        var first = new StreamRecordingDecliner("application/pdf", decline: true);
+        var second = new StreamRecordingDecliner("application/pdf", decline: false);
+        var composite = new CompositeContentExtractor(new IFileContentExtractor[] { first, second });
+
+        using var stream = new MemoryStream("skip:payload"u8.ToArray());
+        stream.Position = 5;
+
+        var result = await composite.ExtractAsync(MakeRecord("application/pdf"), stream);
+
+        Assert.True(result.Success);
+        Assert.Same(stream, first.SeenStream);
+        Assert.Same(stream, second.SeenStream);
+        Assert.Equal("payload", first.SeenContent);
+        Assert.Equal("payload", second.SeenContent);
+    }
+
+    [Fact]
+    public async Task FallThrough_NonSeekableStream_IsBufferedSoEveryAttemptSeesAllContent()
+    {
+        var first = new StreamRecordingDecliner("application/pdf", decline: true);
+        var second = new StreamRecordingDecliner("application/pdf", decline: false);
+        var composite = new CompositeContentExtractor(new IFileContentExtractor[] { first, second });
+
+        var stream = new CountingNonSeekableStream("payload"u8.ToArray());
+
+        var result = await composite.ExtractAsync(MakeRecord("application/pdf"), stream);
+
+        Assert.True(result.Success);
+        Assert.Equal("payload", first.SeenContent);
+        Assert.Equal("payload", second.SeenContent);
+        Assert.Equal(7, stream.BytesRead);
+    }
+
+    private sealed class StreamRecordingDecliner(string contentType, bool decline) : IFileContentExtractor
+    {
+        public Stream? SeenStream { get; private set; }
+        public string? SeenContent { get; private set; }
+        public bool MayDecline => true;
+
+        public bool CanExtract(string? type) => string.Equals(type, contentType, StringComparison.OrdinalIgnoreCase);
+
+        public async Task<FileExtractionResult> ExtractAsync(
+            FileRecord fileRecord, Stream fileStream, CancellationToken ct = default)
+        {
+            SeenStream = fileStream;
+            using var reader = new StreamReader(fileStream, leaveOpen: true);
+            SeenContent = await reader.ReadToEndAsync(ct);
+            return decline
+                ? new FileExtractionResult(false, ErrorMessage: "declined", Declined: true)
+                : new FileExtractionResult(true, ExtractedText: SeenContent);
+        }
+    }
 }

@@ -80,6 +80,8 @@ jobs:
           context: src/knowz-selfhosted-web
           file: src/knowz-selfhosted-web/Dockerfile
           push: true
+          build-args: |
+            VITE_APP_VERSION=${{ steps.meta-web.outputs.version }}
           tags: ${{ steps.meta-web.outputs.tags }}
           labels: ${{ steps.meta-web.outputs.labels }}
           platforms: linux/amd64,linux/arm64

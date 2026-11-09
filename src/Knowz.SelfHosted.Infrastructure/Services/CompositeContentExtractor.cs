@@ -38,15 +38,19 @@ public class CompositeContentExtractor : IFileContentExtractor
         if (candidates.Count == 1 || !candidates.Take(candidates.Count - 1).Any(e => e.MayDecline))
             return await candidates[0].ExtractAsync(fileRecord, fileStream, ct);
 
-        // Fall-through path: buffer ONCE so each attempt can read the complete content.
-        using var buffer = new MemoryStream();
-        await fileStream.CopyToAsync(buffer, ct);
+        // Fall-through path: a seekable stream is rewound in place between attempts; only a
+        // forward-only stream is buffered, once, so each attempt reads the complete content.
+        await using var buffer = fileStream.CanSeek ? null : new MemoryStream();
+        if (buffer is not null)
+            await fileStream.CopyToAsync(buffer, ct);
+        var source = buffer ?? fileStream;
+        var start = buffer is null ? fileStream.Position : 0L;
 
         FileExtractionResult result = new(false, ErrorMessage: "No extractor available for this content type");
         for (var i = 0; i < candidates.Count; i++)
         {
-            buffer.Position = 0;
-            result = await candidates[i].ExtractAsync(fileRecord, buffer, ct);
+            source.Position = start;
+            result = await candidates[i].ExtractAsync(fileRecord, source, ct);
 
             // Continue only while this candidate explicitly declined and another one remains.
             if (!result.Declined || i == candidates.Count - 1)

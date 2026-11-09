@@ -6,22 +6,22 @@ Knowz Self-Hosted runs the Knowz knowledge model on your own host: your database
 
 ## Install (customers)
 
-These instructions target the **Knowz CLI 0.5.0 preview**. The CLI version and selfhosted image version are separate. `knowz up` opens local browser setup, pulls published GHCR **release images**, and starts the web UI. No source checkout or build is required.
+These instructions target **Knowz CLI 0.5.7**, which installs Self-Hosted **0.18.0** by default. The CLI version and selfhosted image version are separate. `knowz up` opens local browser setup, pulls published GHCR **release images**, and starts the web UI. No source checkout or build is required.
 
 ```bash
-npx @knowzai/cli@0.5.6 up
+npx @knowzai/cli@0.5.7 up
 ```
 
 Or install once, then run:
 
 ```bash
-npm i -g @knowzai/cli@0.5.6
+npm i -g @knowzai/cli@0.5.7
 knowz up
 ```
 
-Node-free native preview installers and their checksums are listed in [Knowz CLI releases](https://github.com/knowz-io/knowz-cli/releases). The 0.5.0 native preview is unsigned and not notarized; use the status recorded for your exact artifact. The npm commands above require Node.js.
+Node-free native preview installers and their checksums are listed in [Knowz CLI releases](https://github.com/knowz-io/knowz-cli/releases). The native installers are a preview: they are unsigned and not notarized; use the status recorded for your exact artifact. The npm commands above require Node.js.
 
-Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose) and [Node.js 22+](https://nodejs.org/). Default edition is self-hosted. The CLI generates secrets, opens a loopback setup page, and pulls the current public image triple (`ghcr.io/knowz-io/knowz-selfhosted-api`, `knowz-selfhosted-web`, `knowz-selfhosted-mcp`). No GitHub login.
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose) and [Node.js 22+](https://nodejs.org/). When `knowz up` asks which edition to run, choose **Self-Hosted** (`knowz up --edition selfhosted` skips the question; scripts without a terminal default to Self-Hosted). The CLI generates secrets, opens a loopback setup page, and pulls the current public image triple (`ghcr.io/knowz-io/knowz-selfhosted-api`, `knowz-selfhosted-web`, `knowz-selfhosted-mcp`). No GitHub login.
 
 Setup creates the first administrator (`admin`). If you leave the password blank, use **Show password** or **Copy password** in the setup result to save the generated temporary password; it is shown once. Sign in at the Web URL and change that temporary password before continuing. Return to **Connect CLI** with your current password to finish CLI access. A healthy stack can say **Finish signing in** until this completes. Further accounts are created by an administrator. Stop with `knowz down` (data volumes are preserved).
 
@@ -238,7 +238,7 @@ Use `knowz up` to start or reconnect to an existing installation. Upgrade delibe
 
 ```bash
 knowz backup --edition selfhosted --encrypt --out knowz-before-upgrade.tar.gz.enc
-knowz runtime upgrade --edition selfhosted --version 0.17.0
+knowz runtime upgrade --edition selfhosted --version 0.18.0
 knowz runtime status --edition selfhosted
 ```
 
@@ -482,7 +482,7 @@ docker compose up --build
 
 | Document | Description |
 |----------|-------------|
-| [Quickstart Guide](docs/QUICKSTART.md) | Customer install via `npx @knowzai/cli@0.5.6 up` / `knowz up` (release images, no source) |
+| [Quickstart Guide](docs/QUICKSTART.md) | Customer install via `npx @knowzai/cli@0.5.7 up` / `knowz up` (release images, no source) |
 | [Configuration Reference](docs/CONFIGURATION.md) | All environment variables and settings |
 | [Architecture Overview](docs/ARCHITECTURE.md) | System design, service diagram, data flow |
 | [Contributing](CONTRIBUTING.md) | Development setup, PR process, coding standards |
